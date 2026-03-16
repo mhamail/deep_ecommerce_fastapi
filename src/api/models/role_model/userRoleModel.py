@@ -10,7 +10,8 @@ from src.api.models.baseModel import TimeStampedModel
 
 
 if TYPE_CHECKING:
-    from src.api.models import User, Role
+    from src.api.models.userModel import User
+    from src.api.models.role_model.roleModel import Role
 
 
 #  Database Table Model

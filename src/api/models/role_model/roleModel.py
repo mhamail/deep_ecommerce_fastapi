@@ -1,12 +1,12 @@
 from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import JSON
-from sqlmodel import Field, Relationship
+from sqlmodel import Field, Relationship, SQLModel
 
 from src.api.models.baseModel import TimeStampReadModel, TimeStampedModel
 
 if TYPE_CHECKING:
-    from src.api.models import UserRole
+    from src.api.models.role_model.userRoleModel import UserRole
 
 
 class Role(TimeStampedModel, table=True):
@@ -40,7 +40,7 @@ class RoleReadBase(TimeStampReadModel):
     description: Optional[str]
 
 
-class RoleRead(RoleReadBase):
+class RoleRead(SQLModel, RoleReadBase):
     """Full role info returned in UserRead"""
 
     pass

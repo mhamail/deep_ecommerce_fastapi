@@ -2,8 +2,8 @@ from fastapi import APIRouter
 from sqlmodel import select
 
 from sqlalchemy.orm import selectinload
-from api.core.smtp import send_email
-from config import DOMAIN
+from src.api.core.smtp import send_email
+from src.config import DOMAIN
 from src.api.models.role_model.userRoleModel import UserRole
 from src.api.core.response import api_response
 from src.api.models.role_model.roleModel import Role
@@ -24,13 +24,8 @@ def initialize_first_user(
     # Create first user with admin role
     hashed_password = hash_password(request.password)
     user = User(**request.model_dump())
-    user = User(
-        name=request.name,
-        email=request.email,
-        phone_no=request.phone_no,
-        password=hashed_password,
-        is_root=True,
-    )
+    user.password = hashed_password
+    user.is_root = True
     session.add(user)
     session.flush()
     # Prevent rerun if roles already exist
@@ -49,7 +44,7 @@ def initialize_first_user(
         permissions=["all", "system:*"],
     )
     shop_admin_role = Role(
-        name="Seller Roles",
+        name="Shop Admin",
         slug="shop_admin",
         user_id=user.id,
         permissions=["shop_admin", "role"],
@@ -67,6 +62,7 @@ def initialize_first_user(
     session.refresh(user)
 
     user_read = UserRead.model_validate(user)
+
     return api_response(
         200,
         "Initialized admin user and roles",
@@ -112,3 +108,16 @@ def register_user(
         "Check Your Email to Verify Your Account",
         user_read,
     )
+
+
+def exist_verified_email(session, email: str) -> bool:
+
+    user = session.exec(
+        select(User.id).where(
+            User.email == email,
+            User.email_verified == True,
+        )
+    ).first()
+    print({"user===========": user})
+    print(email)
+    return True if user else False

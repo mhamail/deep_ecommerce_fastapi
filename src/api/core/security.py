@@ -23,7 +23,7 @@ from src.api.core.response import api_response
 ALGORITHM = "HS256"
 
 pwd_context = CryptContext(
-    schemes=["bcrypt"],
+    schemes=["argon2"],
     deprecated="auto",
 )
 

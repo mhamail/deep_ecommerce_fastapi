@@ -1,5 +1,6 @@
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
+from fastapi import File, Form, UploadFile
 from pydantic import EmailStr, model_validator
 from sqlalchemy import JSON, Column, Enum
 from sqlmodel import Field, Relationship, SQLModel
@@ -8,10 +9,9 @@ from src.api.models.role_model.roleModel import RoleRead
 from src.api.models.baseModel import TimeStampReadModel, TimeStampedModel
 
 if TYPE_CHECKING:
-    from src.api.models import (
-        UserRole,
-        Role,
-    )
+    from src.api.models.role_model.userRoleModel import UserRole
+
+    from src.api.models.role_model.roleModel import Role
 
 
 class User(
@@ -62,11 +62,15 @@ class User(
 
 
 class UserCreate(SQLModel):
-    name: str
+    full_name: str
     email: EmailStr
     phone: str
     password: str
     confirm_password: str
+    country: str
+    country_code: str
+    currency_code: str
+    currency_symbol: str
 
     @model_validator(mode="before")
     def check_password_match(cls, values):
@@ -75,16 +79,70 @@ class UserCreate(SQLModel):
         return values
 
 
-class UserReadBase(TimeStampReadModel):
+class UserUpdateForm:
+    def __init__(
+        self,
+        email: Optional[str] = Form(None),
+        phone: Optional[str] = Form(None),
+        full_name: Optional[str] = Form(None),
+        address: Optional[str] = Form(None),
+        cnic: Optional[str] = Form(None),
+        password: Optional[str] = Form(None),
+        confirm_password: Optional[str] = Form(None),
+        country: Optional[str] = Form(None),
+        country_code: Optional[str] = Form(None),
+        currency_code: Optional[str] = Form(None),
+        currency_symbol: Optional[str] = Form(None),
+        # image upload
+        image: Optional[Union[UploadFile, str]] = File(None),
+    ):
+        # Convert empty → None
+        def clean(v):
+            if v is None:
+                return None
+            if isinstance(v, str) and v.strip() == "":
+                return None
+            return v
+
+        self.email = clean(email)
+        self.phone = clean(phone)
+        self.full_name = clean(full_name)
+        self.address = clean(address)
+        self.cnic = clean(cnic)
+        self.password = clean(password)
+        self.confirm_password = clean(confirm_password)
+        self.country = clean(country)
+        self.country_code = clean(country_code)
+        self.currency_code = clean(currency_code)
+        self.currency_symbol = clean(currency_symbol)
+        self.image: Optional[Union[UploadFile, str]] = image
+
+
+class UserRoleRead(SQLModel):
     id: int
     name: str
+    slug: str
+    permissions: list[str]
+    description: Optional[str]
+    user_id: int
+
+
+class UserReadBase(TimeStampReadModel):
+    id: int
+    full_name: str
     phone: str
     email: EmailStr
-    is_active: bool
+    email_verified: bool
+    # is_active: bool
     is_root: bool
     image: Optional[Dict[str, Any]] = None
     contactinfo: Optional[Dict[str, Any]] = None
+    country: str
+    country_code: str
+    currency_code: str
+    currency_symbol: str
 
 
-class UserRead(UserReadBase):
-    roles: List[RoleRead] = None
+class UserRead(SQLModel, UserReadBase):
+    roles: Optional[List[UserRoleRead]] = None
+    pass

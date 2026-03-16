@@ -66,7 +66,7 @@ uv pip install psycopg2-binary
 
 ```bash
 #📌 Basic
-alembic init migration # create migrations folder (first time only)
+alembic init migrations # create migrations folder (first time only)
 alembic current # show current DB revision
 alembic show head # show the latest migration in code
 alembic history # list all migrations
