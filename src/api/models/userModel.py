@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 from fastapi import File, Form, UploadFile
 from pydantic import EmailStr, model_validator
 from sqlalchemy import JSON, Column, Enum
-from sqlmodel import Field, Relationship, SQLModel
+from sqlmodel import Field, Index, Relationship, SQLModel, text
 
 from src.api.models.role_model.roleModel import RoleRead
 from src.api.models.baseModel import TimeStampReadModel, TimeStampedModel
@@ -14,8 +14,23 @@ if TYPE_CHECKING:
     from src.api.models.role_model.roleModel import Role
 
 
+class UserPhone(SQLModel):
+    # User enters this during registration
+    unverified_phone: Optional[str] = Field(
+        default=None, description="Temporary phone until verified"
+    )
+
+    # Saved only when fully verified
+    phone: Optional[str] = Field(
+        default=None, index=True, description="Verified unique phone"
+    )
+
+    verified: bool = Field(default=False)
+
+
 class User(
     TimeStampedModel,
+    UserPhone,
     table=True,
 ):
     __tablename__ = "users"
@@ -34,15 +49,30 @@ class User(
     is_root: bool = Field(default=False)
     is_active: bool = Field(default=True)
     password: str = Field(nullable=False, description="Hashed password")
-    phone: Optional[str] = Field(
-        max_length=30, index=True, unique=True, description="unique phone"
-    )
+
     country: str = Field(description="Country name (e.g., Pakistan)")
     country_code: str = Field(description="Country code (e.g., PK)")
     currency_code: str = Field(description="Currency code (e.g., PKR)")
     currency_symbol: str = Field(description="Currency symbol (e.g., ₨)")
     # Relationships
     user_roles: list["UserRole"] = Relationship(back_populates="user")
+
+    __table_args__ = (
+        # Conditional unique index for verified phones
+        Index(
+            "uq_users_phone_verified",
+            "phone",
+            unique=True,
+            postgresql_where=text("verified = true"),
+        ),
+        # ✅ Unique verified email only
+        Index(
+            "uq_users_verified_email",
+            "email",
+            unique=True,
+            postgresql_where=text("email_verified = true"),
+        ),
+    )
 
     @property
     def roles(self) -> list["Role"]:
