@@ -1,15 +1,27 @@
-from fastapi import APIRouter
-from sqlmodel import select
+from datetime import datetime, timedelta, timezone
+
+from fastapi import APIRouter, Response
+from sqlmodel import or_, select
 
 from sqlalchemy.orm import selectinload
 from src.api.core.smtp import send_email
-from src.config import DOMAIN
+from src.config import ACCESS_TOKEN_EXPIRE_MINUTES, DOMAIN
 from src.api.models.role_model.userRoleModel import UserRole
 from src.api.core.response import api_response
 from src.api.models.role_model.roleModel import Role
-from src.api.core.security import create_access_token, exist_user, hash_password
-from src.api.core.dependencies import GetSession
-from src.api.models.userModel import User, UserCreate, UserRead
+from src.api.core.security import (
+    create_access_token,
+    exist_user,
+    hash_password,
+    verify_password,
+)
+from src.api.core.dependencies import (
+    GetSession,
+    requireSignin,
+    requireAdmin,
+    requirePermission,
+)
+from src.api.models.userModel import LoginRequest, User, UserCreate, UserRead
 
 
 router = APIRouter(tags=["Auth"])
@@ -110,6 +122,89 @@ def register_user(
     )
 
 
+@router.post("/login", response_model=dict)
+def login_user(
+    request: LoginRequest,
+    response: Response,
+    session: GetSession,
+):
+
+    # Detect email or phone
+    identifier = request.identifier.strip()
+
+    if "@" in identifier:
+        user = session.exec(
+            select(User)
+            .options(selectinload(User.user_roles).selectinload(UserRole.role))
+            .where(User.email == identifier)
+        ).first()
+    else:
+        user = session.exec(
+            select(User)
+            .options(selectinload(User.user_roles).selectinload(UserRole.role))
+            .where(or_(User.phone == identifier, User.unverified_phone == identifier))
+        ).first()
+
+    if not user:
+        return api_response(400, "User not found")
+
+    # If phone login → must be verified
+    if not user.verified and "@" not in identifier:
+        return api_response(401, "Please Login with Email, Your Number is Not Verified")
+
+    # If email login → must be verified
+    if "@" in identifier and not user.email_verified:
+        return api_response(401, "Please verify your email before logging in")
+
+    user_read = UserRead.model_validate(user)
+
+    if not verify_password(request.password, user.password):
+        return api_response(401, "Incorrect password")
+    if not user.is_active:
+        return api_response(403, "User account is disabled")
+
+    # Use properties instead of user.roles
+    user_dict = user_read.model_dump()
+    roles = (
+        user_dict["roles"] if "roles" in user_dict and len(user_dict["roles"]) else None
+    )
+
+    user_data = {
+        "id": user.id,
+        "email": user.email,
+        "phone": user.phone or None,
+        "is_root": user.is_root or False,
+        "roles": roles,
+        "verified": user.verified or False,
+    }
+
+    # Print(user_data)
+    access_token = create_access_token(user_data=user_data)
+    refresh_token = create_access_token(user_data=user_data, refresh=True)
+
+    exp_time = datetime.now(timezone.utc) + timedelta(
+        minutes=ACCESS_TOKEN_EXPIRE_MINUTES
+    )
+    # cookie will test in postman and frontend only with tag credential:true
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        samesite="strict",
+        max_age=30 * 24 * 60 * 60,  # 30 days
+    )
+    content = {
+        "message": "Login successful",
+        "token_type": "bearer",
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "user": user_read,
+        "exp": exp_time.isoformat(),
+    }
+
+    return api_response(200, "Login successful", content)
+
+
 def exist_verified_email(session, email: str) -> bool:
 
     user = session.exec(
@@ -121,3 +216,36 @@ def exist_verified_email(session, email: str) -> bool:
     print({"user===========": user})
     print(email)
     return True if user else False
+
+
+@router.post("/logout")
+def logout(response: Response):
+    response.delete_cookie("refresh_token")
+    response.delete_cookie("access_token")
+    return {"message": "Logged out"}
+
+
+@router.get("/testauth", response_model=dict)
+def test_auth(
+    user: requireSignin,
+):
+    return api_response(
+        200,
+        "Token is valid",
+        {"user": user},
+    )
+
+
+@router.get("/testadmin")
+def get_admin_data(
+    user: requireAdmin,
+):
+
+    return {"message": f"Hello Admin {user['email']}", "user": user}
+
+
+@router.get("/testpermission")
+def get_admin_data(
+    user=requirePermission("system:*"),
+):
+    return {"message": f"Hello Admin {user}"}

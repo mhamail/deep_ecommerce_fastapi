@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 from fastapi import File, Form, UploadFile
-from pydantic import EmailStr, model_validator
+from pydantic import BaseModel, EmailStr, model_validator
 from sqlalchemy import JSON, Column, Enum
 from sqlmodel import Field, Index, Relationship, SQLModel, text
 
@@ -151,9 +151,7 @@ class UserUpdateForm:
 class UserRoleRead(SQLModel):
     id: int
     name: str
-    slug: str
     permissions: list[str]
-    description: Optional[str]
     user_id: int
 
 
@@ -176,3 +174,8 @@ class UserReadBase(TimeStampReadModel):
 class UserRead(SQLModel, UserReadBase):
     roles: Optional[List[UserRoleRead]] = None
     pass
+
+
+class LoginRequest(BaseModel):
+    identifier: str  # phone OR email
+    password: str

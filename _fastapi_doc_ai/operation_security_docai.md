@@ -1,3 +1,53 @@
+# My way to code Fastapi Doc Ai For Operation,Security Func, Media etc
+
+## in this project we use latest fastapi method, uv package manager, sql model for schemas
+
+## Operations
+
+//=========================================
+
+## Update Operation
+
+// =======================================
+
+```
+from src.api.core.operation import listRecords, updateOp
+```
+
+```py
+# Update only the fields that are provided in the request
+# customFields = ["phone", "firstname", "lastname", "email"]
+def updateOp(
+    instance,
+    request,
+    session,
+    customFields=None,
+):
+    if customFields:
+        for field in customFields:
+            if hasattr(request, field):
+                value = getattr(request, field)
+                if value is not None:
+                    setattr(instance, field, value)
+    else:
+        data = request.model_dump(exclude_unset=True)
+        for key, value in data.items():
+            setattr(instance, key, value)
+    if hasattr(instance, "updated_at"):
+        instance.updated_at = datetime.now(timezone.utc)
+    session.add(instance)
+
+    return instance
+
+```
+
+//=========================================
+
+## Security
+
+// =======================================
+
+```py
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 from passlib.context import CryptContext
@@ -6,7 +56,6 @@ from sqlalchemy import select
 from sqlmodel import Session
 from fastapi import (
     Depends,
-    HTTPException,
     Header,
     Security,
     status,
@@ -16,22 +65,20 @@ from fastapi.security import (
     HTTPBearer,
 )
 
-from src.config import SECRET_KEY, ACCESS_TOKEN_EXPIRE
+from src.config import ACCESS_TOKEN_EXPIRE_MINUTES, SECRET_KEY
 from src.api.core.response import api_response
-
+from src.api.models import User
 
 ALGORITHM = "HS256"
 
 pwd_context = CryptContext(
-    schemes=["argon2"],
+    schemes=["bcrypt"],
     deprecated="auto",
 )
 
 
 ## get user
 def exist_user(db: Session, email: str):
-    from src.api.models.userModel import User
-
     user = db.exec(select(User).where(User.email == email)).first()
     return user
 
@@ -54,7 +101,7 @@ def create_access_token(
         expire = datetime.now(timezone.utc) + timedelta(days=30)
     else:
         expire = datetime.now(timezone.utc) + (
-            expires or timedelta(days=ACCESS_TOKEN_EXPIRE)
+            expires or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
         )
 
     payload = {
@@ -155,83 +202,28 @@ def require_signin(
         return api_response(status.HTTP_401_UNAUTHORIZED, "Invalid token", data=str(e))
 
 
-def verified_user(user: dict = Depends(require_signin)):
-    if user.get("verified") is False or user.get("phone") is None:
-        api_response(
-            status.HTTP_423_LOCKED,
-            "User is not verified",
-        )
+def require_admin(user: dict = Depends(require_signin)):
+    roles: List[str] = user.get("roles", [])
+    if "root" not in roles:
+        api_response(status.HTTP_403_FORBIDDEN, "Root User only")
     return user
 
 
-def get_user_permissions(user: dict) -> set[str]:
-    roles = user.get("roles", [])
-
-    permissions = set()
-    for role in roles:
-        permissions.update(role.get("permissions", []))
-
-    return permissions
-
-
-def has_role(user: dict, role_name: str) -> bool:
-    roles = user.get("roles", [])
-    return any(r.get("name") == role_name for r in roles)
-
-
-def require_admin(
-    user: dict = Depends(require_signin),
-):
-    try:
-        roles = user.get("roles", [])
-
-        if not roles and not user.get("is_root"):
-            return api_response(
-                status.HTTP_401_UNAUTHORIZED,
-                "Access denied: no roles found",
-            )
-
-        user_permissions = get_user_permissions(user)
-
-        # ✅ Admin logic
-        if (
-            not has_role(user, "root")
-            and user.get("is_root") is False
-            and "system:*" not in user_permissions
-        ):
-            return api_response(
-                status.HTTP_403_FORBIDDEN,
-                "Access denied: Admins only",
-            )
-
-        return user
-
-    except JWTError:
-        return api_response(
-            status.HTTP_401_UNAUTHORIZED,
-            "Invalid or expired token",
-        )
-
-
 def require_permission(*permissions: str):
-    def permission_checker(
-        user: dict = Depends(require_signin),
-    ):
-        roles = user.get("roles", [])
+    def permission_checker(user: dict = Depends(require_signin)):
+        user_permissions: List[str] = user.get("permissions", [])
 
-        if not roles:
-            return api_response(403, "Permission denied")
-
-        user_permissions = get_user_permissions(user)
-
-        # ✅ सुपर admin shortcut
+        # ✅ system:* always passes
         if "system:*" in user_permissions:
             return user
 
-        # ✅ Match ANY permission
+        # ✅ OR logic: check if user has any required permission
         if any(p in user_permissions for p in permissions):
             return user
 
-        return api_response(403, "Permission denied")
+        # ❌ no match → deny
+        api_response(status.HTTP_403_FORBIDDEN, "Permission denied")
 
     return permission_checker
+
+```
