@@ -79,13 +79,14 @@ from src.api.core.security import (
     require_permission,
     require_signin,
     require_admin,
+    verified_user,
 )
-
 
 GetSession = Annotated[Session, Depends(get_session)]
 
 requireSignin = Annotated[dict, Depends(require_signin)]
 requireAdmin = Annotated[dict, Depends(require_admin)]
+verifiedUser = Annotated[dict, Depends(verified_user)]
 isAuthenticated = Annotated[dict | None, Depends(is_authenticated)]
 ListQueryParams = Annotated[dict, Depends(list_query_params)]
 
@@ -104,6 +105,7 @@ def requirePermission(*permissions: str):
 ```py
 from typing import Any, Optional, Union
 
+from fastapi import HTTPException
 from fastapi.encoders import (
     jsonable_encoder,
 )
@@ -130,7 +132,7 @@ def api_response(
 
     # Raise error if code >= 400
     if code >= 400:
-        return JSONResponse(status_code=code, content=content)
+        raise HTTPException(status_code=code, detail=detail)
 
     return JSONResponse(
         status_code=code,
@@ -173,7 +175,10 @@ def raiseExceptions(*conditions: tuple[Any, int | None, str | None, bool | None]
 from datetime import datetime, timezone
 import json
 import re
+from typing import Any, List
 import unicodedata
+
+from fastapi import UploadFile
 
 
 date_formats = [
@@ -246,5 +251,25 @@ def uniqueSlugify(session, model, name: str, slug_field: str = "slug") -> str:
 
 def Print(data, title="Result"):
     print(f"{title}\n", json.dumps(data, indent=2, default=str))
+
+
+def parse_list(value):
+    """
+    Convert a string like "a,b,c" or ["a,b,c"] into ["a","b","c"]
+    """
+    if not value:
+        return []
+
+    if isinstance(value, list):
+        # list with one comma-joined string
+        if len(value) == 1 and isinstance(value[0], str):
+            return [v.strip() for v in value[0].split(",") if v.strip()]
+        # already normal list
+        return [v.strip() for v in value]
+
+    if isinstance(value, str):
+        return [v.strip() for v in value.split(",") if v.strip()]
+
+    return []
 
 ```

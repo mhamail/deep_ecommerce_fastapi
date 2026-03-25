@@ -115,11 +115,7 @@ async def delete_by_ids(
         ..., description="IDs of media to delete"
     ),  # e.g. /media/delete-by-ids?ids=1&ids=2&ids=3
 ):
-    response = delete_media_items(
-        session=session,
-        ids=ids,
-        forceRemove=True,
-    )
+    response = delete_media_items(session=session, ids=ids)
     if len(response["deleted"]) == 0:
         return api_response(400, response["message"])
     session.commit()
@@ -143,7 +139,6 @@ async def delete_by_filenames(
     response = delete_media_items(
         session=session,
         filenames=filenames,
-        forceRemove=True,
     )
     if len(response["deleted"]) == 0:
         return api_response(400, response["message"])

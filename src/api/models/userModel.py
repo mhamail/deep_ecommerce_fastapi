@@ -1,3 +1,4 @@
+import json
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 from fastapi import File, Form, UploadFile
@@ -15,11 +16,6 @@ if TYPE_CHECKING:
 
 
 class UserPhone(SQLModel):
-    # User enters this during registration
-    unverified_phone: Optional[str] = Field(
-        default=None, description="Temporary phone until verified"
-    )
-
     # Saved only when fully verified
     phone: Optional[str] = Field(
         default=None, index=True, description="Verified unique phone"
@@ -116,7 +112,7 @@ class UserUpdateForm:
         phone: Optional[str] = Form(None),
         full_name: Optional[str] = Form(None),
         address: Optional[str] = Form(None),
-        cnic: Optional[str] = Form(None),
+        contactinfo: Optional[str] = Form(None),
         password: Optional[str] = Form(None),
         confirm_password: Optional[str] = Form(None),
         country: Optional[str] = Form(None),
@@ -134,11 +130,20 @@ class UserUpdateForm:
                 return None
             return v
 
+        def clean_json(v):
+            v = clean(v)
+            if v is None:
+                return None
+            try:
+                return json.loads(v)
+            except Exception:
+                raise ValueError(f"Invalid JSON: {v}")
+
         self.email = clean(email)
         self.phone = clean(phone)
         self.full_name = clean(full_name)
         self.address = clean(address)
-        self.cnic = clean(cnic)
+        self.contactinfo = clean_json(contactinfo)
         self.password = clean(password)
         self.confirm_password = clean(confirm_password)
         self.country = clean(country)

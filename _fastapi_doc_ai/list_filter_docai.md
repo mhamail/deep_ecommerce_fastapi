@@ -74,7 +74,7 @@ class list_query_params:
         ),
         searchTerm: str | None = Query(None, description="Search term"),
         columnFilters: Optional[str] = Query(
-            None, description="Example : '[['name','car'],['description','product']]"
+            None, description='Example : [["name","car"],["description","product"]]'
         ),
         stringArrayFilters: Optional[str] = Query(
             None, description="Example: [['tags',['tag1','tag2']]]"
@@ -100,6 +100,7 @@ class list_query_params:
         self.page = page
         self.numberRange = numberRange
         self.sort = sort
+
 
 ```
 
@@ -162,6 +163,7 @@ def listop(
     customFilters = filters.get("customFilters")
     stringArrayFilters = filters.get("stringArrayFilters")
     objectArrayFilters = filters.get("objectArrayFilters")
+    geoFilters = filters.get("geoFilters")
 
     # Apply Filters
     statement = applyFilters(
@@ -177,6 +179,7 @@ def listop(
         sort=sort if sort else '["created_at", "desc"]',
         stringArrayFilters=stringArrayFilters,
         objectArrayFilters=objectArrayFilters,
+        geoFilters=geoFilters,
     )
 
     # Total count (before pagination)
@@ -199,6 +202,7 @@ def listRecords(
     join_options: list = [],
     Schema: type[SQLModel] = None,
     otherFilters=None,
+    geo_filters: Optional[List[List[str]]] = None,
     Statement=None,
 ):
     session = next(get_session())  # get actual Session object
@@ -223,6 +227,7 @@ def listRecords(
             "customFilters": customFilters,
             "stringArrayFilters": stringArrayFilters,
             "objectArrayFilters": objectArrayFilters,
+            "geoFilters": geo_filters,
         }
 
         result = listop(
@@ -258,8 +263,6 @@ def listRecords(
             400,
             f"Invalid pagination values: {str(e).splitlines()[0]}",
         )
-    finally:
-        session.close()
 
 ```
 
@@ -274,6 +277,7 @@ import ast
 from datetime import datetime, timezone
 import json
 from typing import List, Optional
+from sqlalchemy import Float, cast
 from sqlmodel import SQLModel, and_, asc, desc, func, or_
 from sqlmodel.sql.expression import Select, SelectOfScalar
 
@@ -565,7 +569,9 @@ def applyFilters(
     sort: Optional[str] = None,
     stringArrayFilters: Optional[List[List[str]]] = None,
     objectArrayFilters: Optional[List[List[str]]] = None,
+    geoFilters: Optional[List[List[str]]] = None,
 ):
+
     if otherFilters:
         # pass the current statement through the hook
         statement = otherFilters(statement, Model)
@@ -610,7 +616,6 @@ def applyFilters(
                 filters.append(or_(*ors))
 
             statement = statement.where(and_(*filters))
-            return statement
 
         except Exception as e:
             return api_response(
@@ -631,9 +636,8 @@ def applyFilters(
             else:
                 filters.append(attr == value)
 
-        statement = statement.where(and_(*filters))
-
-        return statement
+        if filters:
+            statement = statement.where(and_(*filters))
 
     # Number range
     if numberRange:
@@ -664,26 +668,15 @@ def applyFilters(
         column = getattr(Model, column_name)  # map to SQLModel column
 
         start_date = parse_date(dateRange[1])
-        end_date = (
-            parse_date(dateRange[2])
-            if len(dateRange) > 2 and dateRange[2]
-            else datetime.now(timezone.utc)
+        end_date = parse_date(dateRange[2]) if len(dateRange) > 2 else None
+
+        statement = (
+            statement.where(and_(column >= start_date, column <= end_date))
+            if end_date
+            else statement.where(column >= start_date)
         )
 
-        # If user didn’t specify end time, set to 23:59:59
-        if (
-            end_date.hour == 0
-            and end_date.minute == 0
-            and end_date.second == 0
-            and end_date.microsecond == 0
-        ):
-            end_date = end_date.replace(
-                hour=23, minute=59, second=59, microsecond=999999
-            )
-
-        statement = statement.where(and_(column >= start_date, column <= end_date))
-
-        # Sorting
+    # Sorting
 
     if sort:
         try:
@@ -732,6 +725,55 @@ def applyFilters(
             except Exception as e:
                 return api_response(400, f"objectArrayFilter parse error: {e}")
 
+    # ======================================
+    # GEO FILTER
+    # ======================================
+
+    if geoFilters:
+        try:
+            parsed_terms = (
+                ast.literal_eval(geoFilters)
+                if isinstance(geoFilters, str)
+                else geoFilters
+            )
+
+            geo_dict = dict(parsed_terms)
+
+            lat = float(geo_dict.get("from_lat"))
+            lng = float(geo_dict.get("from_lng"))
+            radius = float(geo_dict.get("radius_from", 5))
+
+            if lat is None or lng is None:
+                return api_response(400, "Latitude and Longitude required")
+
+            # 🔥 CORRECT WAY (no .astext)
+            coordinates = Model.from_location.op("->")("coordinates")
+
+            lng_col = cast(
+                coordinates.op("->>")(0),  # ->> 0
+                Float,
+            )
+
+            lat_col = cast(
+                coordinates.op("->>")(1),  # ->> 1
+                Float,
+            )
+
+            # Haversine (KM)
+            distance = 6371 * func.acos(
+                func.cos(func.radians(lat))
+                * func.cos(func.radians(lat_col))
+                * func.cos(func.radians(lng_col) - func.radians(lng))
+                + func.sin(func.radians(lat)) * func.sin(func.radians(lat_col))
+            )
+
+            statement = statement.where(distance <= radius)
+
+            # Optional: sort nearest first
+            statement = statement.order_by(distance.asc())
+
+        except Exception as e:
+            return api_response(400, f"Geo filter error: {str(e)}")
     return statement
 
 ```

@@ -1,4 +1,5 @@
 from src.api.models.userModel import User
+from src.api.models.mediaModel import Media
 
 # role
 from src.api.models.role_model.roleModel import Role

@@ -70,7 +70,10 @@ async def update_user(
         request.image = records[0].model_dump(
             include={"id", "filename", "original", "media_type"}
         )
-        request.image = None
+
+    else:
+        if hasattr(request, "image"):
+            delattr(request, "image")
 
     if (
         request.email
@@ -90,8 +93,6 @@ async def update_user(
 
     if request.phone and request.phone != user.get("phone"):
         updated_user.verified = False
-        updated_user.unverified_phone = request.phone
-        updated_user.phone = None
     if request.email and request.email != user.get("email"):
 
         # ✅ Create JWT token (valid for lifetime)
