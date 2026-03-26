@@ -1,19 +1,25 @@
 from datetime import datetime, timedelta, timezone
+from random import randint
 
-from fastapi import APIRouter, Response
+from fastapi import APIRouter, Body, Request, Response
+from jose import jwt
+from pydantic import EmailStr
 from sqlmodel import or_, select
 
 from sqlalchemy.orm import selectinload
 from src.api.core.smtp import send_email
-from src.config import ACCESS_TOKEN_EXPIRE_MINUTES, DOMAIN
+from src.config import ACCESS_TOKEN_EXPIRE_MINUTES, DOMAIN, SECRET_KEY
 from src.api.models.role_model.userRoleModel import UserRole
 from src.api.core.response import api_response
 from src.api.models.role_model.roleModel import Role
 from src.api.core.security import (
+    ALGORITHM,
     create_access_token,
+    decode_token,
     exist_user,
     hash_password,
     verify_password,
+    verify_refresh_token,
 )
 from src.api.core.dependencies import (
     GetSession,
@@ -21,7 +27,13 @@ from src.api.core.dependencies import (
     requireAdmin,
     requirePermission,
 )
-from src.api.models.userModel import LoginRequest, User, UserCreate, UserRead
+from src.api.models.userModel import (
+    LoginRequest,
+    ResetPasswordWithOTPRequest,
+    User,
+    UserCreate,
+    UserRead,
+)
 
 
 router = APIRouter(tags=["Auth"])
@@ -216,6 +228,103 @@ def exist_verified_email(session, email: str) -> bool:
     print({"user===========": user})
     print(email)
     return True if user else False
+
+
+@router.post(
+    "/refresh",
+)
+def refresh_token(
+    refresh_token: str,
+):
+    if not refresh_token:
+        api_response(401, "Missing refresh token")
+
+    payload = verify_refresh_token(refresh_token)
+    if not payload:
+        raise api_response(401, "Invalid refresh token")
+    user = decode_token(refresh_token)
+    # user = UserRead.model_validate(db_user)
+    access_token = create_access_token(user)
+    new_refresh_token = create_access_token(user_data=user, refresh=True)
+
+    return api_response(
+        200,
+        "Refresh",
+        {
+            "access_token": access_token,
+            "refresh_token": new_refresh_token,
+            **user,
+        },
+    )
+
+
+# forgot otp password send
+@router.post("/otp-send-email")
+def forgot_password(
+    session: GetSession,
+    email: EmailStr = Body(...),
+):
+    email = email.strip().lower()
+
+    user = session.exec(select(User).where(User.email == email)).first()
+
+    # ✅ Do NOT reveal whether email exists (security best practice)
+    if not user:
+        return api_response(200, "If this email exists, an OTP has been sent.")
+
+    # Generate 6-digit OTP
+    otp = f"{randint(100000, 999999)}"
+
+    data = {"otp": otp, "email": email}
+    otp_token = create_access_token(user_data=data, expires=timedelta(minutes=10))
+    user.use_token = otp_token
+    session.add(user)
+    session.commit()
+
+    # Send OTP via email or SMS
+    send_email(
+        to_email=user.email,
+        subject="Your Password Reset OTP",
+        body=f"Your OTP code is: {otp} (valid for 10 minutes)",
+    )
+
+    return api_response(200, "If this email exists, an OTP has been sent.")
+
+
+@router.post("/reset-password")
+def reset_password(
+    request: ResetPasswordWithOTPRequest,
+    session: GetSession,
+):
+    email = request.email.strip().lower()
+    otp = request.otp.strip()
+    new_password = request.new_password
+
+    user = session.exec(select(User).where(User.email == email)).first()
+    if not user:
+        return api_response(400, "Invalid email or OTP")
+    if not user.use_token:
+        return api_response(400, "Expired OTP")
+    decode = decode_token(user.use_token)
+    if not decode:
+        return api_response(400, "Invalid or expired OTP")
+
+    data = decode.get("user", {})
+    decoded_otp = data.get("otp")
+    token_email = data.get("email")
+
+    if decoded_otp != otp or token_email != email:
+        return api_response(400, "Invalid OTP")
+
+    # Reset password
+    user.password = hash_password(new_password)
+    user.use_token = None  # ✅ invalidate OTP
+    user.updated_at = datetime.now(timezone.utc)
+
+    session.add(user)
+    session.commit()
+
+    return api_response(200, "Password has been reset successfully")
 
 
 @router.post("/logout")

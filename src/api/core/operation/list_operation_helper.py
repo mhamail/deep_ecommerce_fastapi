@@ -281,6 +281,48 @@ def object_array_filter(statement: Select, Model, parsed_filters):
     return statement
 
 
+def deep_filter(statement: Select, Model, parsed_filters):
+    filters = []
+
+    for entry in parsed_filters:
+        if not isinstance(entry, (list, tuple)) or len(entry) < 2:
+            continue
+
+        field_path = entry[0]  # e.g. roles.permissions OR obj.data.name
+        values = entry[1]
+
+        if not isinstance(values, list):
+            values = [values]
+
+        try:
+            attr, statement = resolve_column(Model, field_path, statement)
+        except Exception:
+            return api_response(400, f"Invalid filter field: {field_path}")
+
+        ors = []
+
+        for val in values:
+            try:
+                # ✅ Case 1: JSON array contains value
+                ors.append(cast(attr, JSONB).contains([val]))
+            except Exception:
+                try:
+                    # ✅ Case 2: JSON object match
+                    ors.append(
+                        cast(attr, JSONB).contains({field_path.split(".")[-1]: val})
+                    )
+                except Exception:
+                    # ✅ Case 3: fallback string search
+                    ors.append(attr.ilike(f"%{val}%"))
+
+        filters.append(or_(*ors))
+
+    if filters:
+        statement = statement.where(and_(*filters))
+
+    return statement
+
+
 def applyFilters(
     statement: SelectOfScalar,
     Model: type[SQLModel],
@@ -295,6 +337,7 @@ def applyFilters(
     stringArrayFilters: Optional[List[List[str]]] = None,
     objectArrayFilters: Optional[List[List[str]]] = None,
     geoFilters: Optional[List[List[str]]] = None,
+    deepFilters: Optional[List[List[str]]] = None,
 ):
 
     if otherFilters:
@@ -499,4 +542,20 @@ def applyFilters(
 
         except Exception as e:
             return api_response(400, f"Geo filter error: {str(e)}")
+
+    # ======================================
+    # Deep FILTER
+    # ======================================
+
+    if deepFilters:
+        try:
+            parsed = (
+                ast.literal_eval(deepFilters)
+                if isinstance(deepFilters, str)
+                else deepFilters
+            )
+            statement = deep_filter(statement, Model, parsed)
+        except Exception as e:
+            return api_response(400, f"deepFilter error: {e}")
+
     return statement

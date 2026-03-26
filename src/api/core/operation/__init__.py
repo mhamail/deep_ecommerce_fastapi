@@ -100,6 +100,7 @@ def listop(
     stringArrayFilters = filters.get("stringArrayFilters")
     objectArrayFilters = filters.get("objectArrayFilters")
     geoFilters = filters.get("geoFilters")
+    deepFilters = filters.get("deepFilters")
 
     # Apply Filters
     statement = applyFilters(
@@ -116,6 +117,7 @@ def listop(
         stringArrayFilters=stringArrayFilters,
         objectArrayFilters=objectArrayFilters,
         geoFilters=geoFilters,
+        deepFilters=deepFilters,
     )
 
     # Total count (before pagination)
