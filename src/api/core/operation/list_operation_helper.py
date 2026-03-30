@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 import json
 from typing import List, Optional
 from sqlalchemy import Float, cast
-from sqlmodel import SQLModel, and_, asc, desc, func, or_
+from sqlmodel import JSON, SQLModel, String, and_, asc, desc, func, or_
 from sqlmodel.sql.expression import Select, SelectOfScalar
 
 from src.api.core.response import api_response
@@ -281,46 +281,80 @@ def object_array_filter(statement: Select, Model, parsed_filters):
     return statement
 
 
-def deep_filter(statement: Select, Model, parsed_filters):
+def auto_resolve_path(Model, field_path: str, statement):
+    parts = field_path.split(".")
+    current_model = Model
+    attr = None
+
+    for part in parts:
+        mapper = current_model.__mapper__
+
+        # ✅ column
+        if part in mapper.columns:
+            attr = getattr(current_model, part)
+
+        # ✅ relationship
+        elif part in mapper.relationships:
+            rel = mapper.relationships[part]
+            statement = statement.join(getattr(current_model, part))
+            current_model = rel.mapper.class_
+            attr = current_model
+
+        else:
+            raise Exception(f"Invalid field: {field_path}")
+
+    return attr, statement
+
+
+def is_json_field(attr):
+    try:
+        col_type = attr.property.columns[0].type
+        return isinstance(col_type, (SATypes.JSON, JSONB))
+    except Exception:
+        return False
+
+
+def deep_filter(statement, Model, parsed_filters):
     filters = []
 
     for entry in parsed_filters:
         if not isinstance(entry, (list, tuple)) or len(entry) < 2:
-            continue
+            raise Exception(f"Invalid filter format: {entry}")
 
-        field_path = entry[0]  # e.g. roles.permissions OR obj.data.name
+        field_path = entry[0]
         values = entry[1]
 
         if not isinstance(values, list):
             values = [values]
 
-        try:
-            attr, statement = resolve_column(Model, field_path, statement)
-        except Exception:
-            return api_response(400, f"Invalid filter field: {field_path}")
+        attr, statement = auto_resolve_path(Model, field_path, statement)
 
         ors = []
 
         for val in values:
-            try:
-                # ✅ Case 1: JSON array contains value
+
+            # ✅ JSON ARRAY FIELD (permissions)
+            if is_json_field(attr):
+                # IMPORTANT: value must be array
                 ors.append(cast(attr, JSONB).contains([val]))
-            except Exception:
-                try:
-                    # ✅ Case 2: JSON object match
-                    ors.append(
-                        cast(attr, JSONB).contains({field_path.split(".")[-1]: val})
-                    )
-                except Exception:
-                    # ✅ Case 3: fallback string search
-                    ors.append(attr.ilike(f"%{val}%"))
+                continue  # 🚨 stop here (NO ilike!)
+
+            # ✅ STRING FIELD
+            col_type = attr.property.columns[0].type
+            if isinstance(col_type, SATypes.String):
+                ors.append(attr == val)
+                ors.append(attr.ilike(f"%{val}%"))
+                continue
+
+            # ✅ OTHER TYPES
+            ors.append(attr == val)
 
         filters.append(or_(*ors))
 
-    if filters:
-        statement = statement.where(and_(*filters))
+    if not filters:
+        raise Exception("No valid filters")
 
-    return statement
+    return statement.where(and_(*filters))
 
 
 def applyFilters(
@@ -554,7 +588,19 @@ def applyFilters(
                 if isinstance(deepFilters, str)
                 else deepFilters
             )
+
+            # ✅ normalize single filter → list of filters
+            if (
+                isinstance(parsed, list)
+                and len(parsed) == 2
+                and isinstance(parsed[0], str)
+            ):
+                parsed = [parsed]
+
+            print("<<<=================================>>>", parsed)
+
             statement = deep_filter(statement, Model, parsed)
+
         except Exception as e:
             return api_response(400, f"deepFilter error: {e}")
 
