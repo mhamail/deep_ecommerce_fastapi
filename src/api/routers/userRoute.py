@@ -159,9 +159,9 @@ def list_users(
         None,
         description="""
         Format: [["field.path", value or [values]]]. 
-    Supports string (exact/like), boolean, number, JSON array (permissions), 
-    and deep relations. 
-    Example: [["user_roles.role.name","admin"],["users.is_active",true],["user_roles.role.permissions",["all"]]]
+        Supports string (exact/like), boolean, number, JSON array (permissions), 
+        and deep relations. 
+        Example: [["user_roles.role.name","admin"],["users.is_active",true],["user_roles.role.permissions",["all","user-create"]]]
     """,
     ),
     page: int = None,
