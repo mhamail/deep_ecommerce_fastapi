@@ -155,7 +155,15 @@ def list_users(
         None,
         description='Example: [[ "attributes", ["name","color"], ["values", ["value","Red"]]]]',
     ),
-    deepFilters: Optional[str] = Query(None),
+    deepFilters: Optional[str] = Query(
+        None,
+        description="""
+        Format: [["field.path", value or [values]]]. 
+    Supports string (exact/like), boolean, number, JSON array (permissions), 
+    and deep relations. 
+    Example: [["user_roles.role.name","admin"],["users.is_active",true],["user_roles.role.permissions",["all"]]]
+    """,
+    ),
     page: int = None,
     skip: int = 0,
     limit: int = Query(10, ge=1, le=200),
