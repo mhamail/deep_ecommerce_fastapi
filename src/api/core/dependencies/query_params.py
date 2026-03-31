@@ -23,6 +23,10 @@ class list_query_params:
             None,
             description='Example: [[ "attributes", ["name","color"], ["values", ["value","Red"]]]]',
         ),
+        deepFilters: Optional[str] = Query(
+            None,
+            description='Format: [["field.path", value or [values]]],Supports string (exact/like), boolean, number, JSON array (permissions), and deep relations. Example: [["user_roles.role.name","admin"],["users.is_active",true],["user_roles.role.permissions",["all","user-create"]]]',
+        ),
         page: int = Query(1, description="Page number"),
         skip: int = Query(0, description="Number of items to skip"),
         limit: int = Query(10, description="Number of items to return"),
@@ -37,6 +41,7 @@ class list_query_params:
         self.columnFilters = columnFilters
         self.stringArrayFilters = stringArrayFilters
         self.objectArrayFilters = objectArrayFilters
+        self.deepFilters = deepFilters
         self.page = page
         self.numberRange = numberRange
         self.sort = sort

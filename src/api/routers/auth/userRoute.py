@@ -6,7 +6,7 @@ from src.api.core.operation import listop
 from src.api.core.operation.media import delete_media_items, entryMedia, uploadImage
 from src.api.core.security import create_access_token, hash_password
 from src.api.core.smtp import send_email
-from src.api.routers.authRoute import exist_verified_email
+from src.api.routers.auth.authRoute import exist_verified_email
 from src.config import DOMAIN
 from src.api.core import updateOp, requireSignin
 from src.api.core.dependencies import GetSession, requireAdmin

@@ -44,3 +44,16 @@ class RoleRead(SQLModel, RoleReadBase):
     """Full role info returned in UserRead"""
 
     pass
+
+
+class RoleCreate(SQLModel):
+    name: str
+    description: Optional[str] = None
+    permissions: list[str] = []
+
+
+class RoleUpdate(SQLModel):
+    name: Optional[str] = None
+    slug: Optional[str] = None
+    description: Optional[str] = None
+    permissions: Optional[list[str]] = None

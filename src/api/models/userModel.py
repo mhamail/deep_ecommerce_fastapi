@@ -159,7 +159,6 @@ class UserRoleRead(SQLModel):
     id: int
     name: str
     permissions: list[str]
-    user_id: int
 
 
 class UserReadBase(TimeStampReadModel):

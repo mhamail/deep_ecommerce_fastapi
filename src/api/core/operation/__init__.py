@@ -142,6 +142,7 @@ def listRecords(
     otherFilters=None,
     geo_filters: Optional[List[List[str]]] = None,
     Statement=None,
+    badStatusMsg: str = "No Result found",
 ):
     session = next(get_session())  # get actual Session object
     try:
@@ -152,6 +153,7 @@ def listRecords(
         columnFilters = query_params.get("columnFilters")
         stringArrayFilters = query_params.get("stringArrayFilters")
         objectArrayFilters = query_params.get("objectArrayFilters")
+        deepFilters = query_params.get("deepFilters")
         page = int(query_params.get("page", 1))
         skip = int(query_params.get("skip", 0))
         limit = int(query_params.get("limit", 10))
@@ -165,6 +167,7 @@ def listRecords(
             "customFilters": customFilters,
             "stringArrayFilters": stringArrayFilters,
             "objectArrayFilters": objectArrayFilters,
+            "deepFilters": deepFilters,
             "geoFilters": geo_filters,
         }
 
@@ -183,7 +186,7 @@ def listRecords(
         )
 
         if not result["data"]:
-            return api_response(400, "No Result found")
+            return api_response(400, badStatusMsg)
         # Convert each SQLModel Model instance into a ModelRead Pydantic model
         if not Schema:
             return result

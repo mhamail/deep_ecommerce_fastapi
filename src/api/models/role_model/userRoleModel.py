@@ -4,8 +4,7 @@ from typing import TYPE_CHECKING, Literal, Optional
 from pydantic import BaseModel
 from sqlmodel import Field, Relationship, SQLModel
 
-# from api.models.role_model.roleModel import RoleRead
-# from api.models.usersModel import UserReadBase
+
 from src.api.models.baseModel import TimeStampedModel
 
 
@@ -31,3 +30,22 @@ class UserRole(TimeStampedModel, table=True):
 class UserRoleCreate(SQLModel):
     role_id: int
     user_id: int
+
+
+class RoleRead(SQLModel):
+    id: int
+    name: str
+    permissions: list[str]
+    user_id: int
+
+
+class UserRead(SQLModel):
+    id: int
+    full_name: str
+    email: str
+
+
+class UserRoleRead(UserRoleCreate):
+    id: int
+    role: Optional[RoleRead] = None
+    user: Optional[UserRead] = None

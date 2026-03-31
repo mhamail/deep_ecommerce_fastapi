@@ -224,12 +224,22 @@ def require_permission(*permissions: str):
 
         user_permissions = get_user_permissions(user)
 
-        # ✅ सुपर admin shortcut
+        # ✅ admin shortcut
         if "system:*" in user_permissions:
             return user
 
+            # 🔥 Flatten if someone passed list
+        flat_permissions = []
+        for p in permissions:
+            if isinstance(p, list):
+                flat_permissions.extend(p)
+            else:
+                flat_permissions.append(p)
+
+        print("====", user_permissions, flat_permissions)
+
         # ✅ Match ANY permission
-        if any(p in user_permissions for p in permissions):
+        if any(p in user_permissions for p in flat_permissions):
             return user
 
         return api_response(403, "Permission denied")
