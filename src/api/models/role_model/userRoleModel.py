@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING, Literal, Optional
 
 
 from pydantic import BaseModel
-from sqlmodel import Field, Relationship, SQLModel
+from sqlmodel import Field, Relationship, SQLModel, UniqueConstraint
 
 
 from src.api.models.baseModel import TimeStampedModel
@@ -20,6 +20,8 @@ class UserRole(TimeStampedModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)  # type: ignore
     user_id: int = Field(foreign_key="users.id")
     role_id: int = Field(foreign_key="roles.id")
+
+    __table_args__ = (UniqueConstraint("user_id", "role_id", name="uq_user_role"),)
 
     # relationships
     user: "User" = Relationship(back_populates="user_roles")

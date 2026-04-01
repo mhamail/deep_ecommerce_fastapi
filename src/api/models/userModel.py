@@ -14,6 +14,8 @@ if TYPE_CHECKING:
 
     from src.api.models.role_model.roleModel import Role
 
+    from src.api.models.shop import Shop
+
 
 class UserPhone(SQLModel):
     # Saved only when fully verified
@@ -71,6 +73,7 @@ class User(
             postgresql_where=text("email_verified = true"),
         ),
     )
+    shop: "Shop" = Relationship(back_populates="owner")
 
     @property
     def roles(self) -> list["Role"]:
