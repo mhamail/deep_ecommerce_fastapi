@@ -59,3 +59,15 @@ class ShopRead(SQLModel, TimeStampReadModel):
     cover_image: Optional[MediaRead] = None
     logo: Optional[MediaRead] = None
     is_active: bool
+
+
+class UserReadRide(SQLModel):
+    id: int
+    full_name: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    verified: bool
+
+
+class ShopReadWithOwner(ShopRead):
+    owner: UserReadRide
