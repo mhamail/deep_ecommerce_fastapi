@@ -1,3 +1,4 @@
+import json
 from typing import TYPE_CHECKING, Optional, Union
 
 from fastapi import File, Form, UploadFile
@@ -5,6 +6,7 @@ from sqlalchemy import JSON, Column
 from sqlmodel import Field, Relationship, SQLModel
 
 from src.api.models.mediaModel import MediaRead
+
 from src.api.models.utils import clean, clean_json
 from src.api.models.baseModel import TimeStampReadModel, TimeStampedModel
 
@@ -31,27 +33,24 @@ class Shop(TimeStampedModel, table=True):
     owner: "User" = Relationship(back_populates="shop")
 
 
-class ShopForm(SQLModel):
+class ShopForm:
     def __init__(
         self,
-        owner_id: Optional[str] = Form(None),
         name: Optional[str] = Form(None),
-        slug: Optional[str] = Form(None),
         description: Optional[str] = Form(None),
         cover_image: Optional[Union[UploadFile, str]] = File(None),
         logo: Optional[Union[UploadFile, str]] = File(None),
-        address: Optional[dict] = Form(None),
+        address: Optional[str] = Form(None),
     ):
-        self.owner_id = clean(owner_id)
+
         self.name = clean(name)
-        self.slug = clean(slug)
         self.description = clean(description)
         self.cover_image = cover_image
         self.logo = logo
         self.address = clean_json(address)
 
 
-class RideRead(SQLModel, TimeStampReadModel):
+class ShopRead(SQLModel, TimeStampReadModel):
     id: Optional[int]
     name: str
     slug: str

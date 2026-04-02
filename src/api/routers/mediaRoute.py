@@ -29,7 +29,6 @@ async def upload_images(
 
     # 🔑 Save files to disk + build file_info dicts
     saved_files = await uploadImage(files, thumbnail)
-    print(saved_files)
 
     for file_info in saved_files:
         existing_media = session.scalar(

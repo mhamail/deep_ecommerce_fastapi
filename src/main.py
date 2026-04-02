@@ -14,7 +14,7 @@ from src.api.routers.auth import (
     verifymeRoute,
     userRoleRoute,
 )
-from src.api.routers import mediaRoute
+from src.api.routers import mediaRoute, shopRoute
 
 
 @asynccontextmanager
@@ -91,9 +91,12 @@ def root():
     return {"message": "Hello, FastAPI with uv!"}
 
 
+# auth
 app.include_router(authRoute.router)
 app.include_router(userRoute.router)
 app.include_router(verifymeRoute.router)
-app.include_router(mediaRoute.router)
 app.include_router(roleRoute.router)
 app.include_router(userRoleRoute.router)
+app.include_router(mediaRoute.router)
+# main
+app.include_router(shopRoute.router)

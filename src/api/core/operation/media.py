@@ -2,6 +2,7 @@ import os
 import time
 from src.api.core.response import api_response
 from PIL import Image, UnidentifiedImageError, ImageOps
+from starlette.datastructures import UploadFile
 
 from src.api.core.dependencies import GetSession
 from src.api.models.mediaModel import Media
@@ -211,3 +212,25 @@ def delete_media_items(
         "deleted": deleted_files,
         "message": message,
     }
+
+
+async def uploadSingleMedia(file, session):
+    if isinstance(file, UploadFile):
+        files = [file]
+        saved_files = await uploadImage(files, thumbnail=False)
+
+        records = entryMedia(session, saved_files)
+
+        return records[0].model_dump(
+            include={"id", "filename", "original", "media_type"}
+        )
+
+    if isinstance(file, str):  # URL should be string, not URL type
+        statement = select(Media).where(Media.filename == file)
+        media = session.exec(statement).first()
+
+        if media:
+            return media.model_dump(
+                include={"id", "filename", "original", "media_type"}
+            )
+    return None

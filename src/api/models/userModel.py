@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
     from src.api.models.role_model.roleModel import Role
 
-    from src.api.models.shop import Shop
+    from api.models.shopModel import Shop
 
 
 class UserPhone(SQLModel):
