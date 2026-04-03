@@ -43,8 +43,6 @@ async def create_ride(
 
     data = serialize_obj(request)
     await uploadMediaFiles(session, data, request)
-    # data["cover_image"] = await uploadSingleMedia(request.cover_image, session)
-    # data["logo"] = await uploadSingleMedia(request.logo, session)
 
     # ✅ Create shop
     shop = Shop(**data)
