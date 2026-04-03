@@ -8,7 +8,7 @@ from src.api.core.dependencies import GetSession
 from src.api.models.mediaModel import Media
 from sqlalchemy import func
 import os
-from typing import List, Optional, TypedDict
+from typing import Any, List, Optional, TypedDict, Union
 from sqlmodel import select
 
 BASE_DIR = "/var/www"
@@ -234,3 +234,79 @@ async def uploadSingleMedia(file, session):
                 include={"id", "filename", "original", "media_type"}
             )
     return None
+
+
+async def uploadMultiMedia(files, session):
+    if isinstance(files, list):
+        saved_files = await uploadImage(files, thumbnail=False)
+        records = entryMedia(session, saved_files)
+        return records
+
+
+async def uploadMediaFiles(session, data: dict, request):
+    for field, new_value in vars(request).items():
+
+        # skip empty
+        if new_value is None:
+            continue
+
+        # -------------------------
+        # SINGLE FILE
+        # -------------------------
+        if isinstance(new_value, (UploadFile, str)):
+            uploaded = await uploadSingleMedia(new_value, session)
+
+            if uploaded:
+                data[field] = uploaded
+
+        # -------------------------
+        # MULTI FILE
+        # -------------------------
+        elif isinstance(new_value, list):
+            if any(isinstance(i, UploadFile) for i in new_value):
+
+                uploaded_list = await uploadMultiMedia(new_value, session)
+
+                if uploaded_list:
+                    data[field] = uploaded_list
+
+    return data
+
+
+async def deleteMediaFiles(
+    session,
+    *files: Union[dict, str, List[Union[dict, str]], None],
+):
+    filenames_to_delete: List[str] = []
+
+    def extract_filename(file: Any):
+        if not file:
+            return
+
+        # Case 1: dict (your stored media)
+        if isinstance(file, dict):
+            filename = file.get("filename")
+            if filename:
+                filenames_to_delete.append(filename)
+
+        # Case 2: string (filename)
+        elif isinstance(file, str):
+            filenames_to_delete.append(file)
+
+        # Case 3: list (multiple files)
+        elif isinstance(file, list):
+            for f in file:
+                extract_filename(f)
+
+    # loop over all inputs
+    for file in files:
+        extract_filename(file)
+
+    # remove duplicates
+    filenames_to_delete = list(set(filenames_to_delete))
+
+    # delete if exists
+    if filenames_to_delete:
+        return delete_media_items(session, filenames=filenames_to_delete)
+
+    return {"deleted": [], "message": "No files to delete"}
