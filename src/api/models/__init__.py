@@ -6,4 +6,6 @@ from src.api.models.role_model.roleModel import Role
 from src.api.models.role_model.userRoleModel import UserRole
 
 # main
-from src.api.models.shopModel import Shop
+from src.api.models.shop_model.shopModel import Shop
+from src.api.models.shop_model.ShopChildModel import ShopUser
+from src.api.models.productModel import Product

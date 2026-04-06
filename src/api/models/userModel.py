@@ -10,11 +10,13 @@ from src.api.models.role_model.roleModel import RoleRead
 from src.api.models.baseModel import TimeStampReadModel, TimeStampedModel
 
 if TYPE_CHECKING:
+    from src.api.models.productModel import Product
+    from src.api.models.shop_model.ShopChildModel import ShopUser
     from src.api.models.role_model.userRoleModel import UserRole
 
     from src.api.models.role_model.roleModel import Role
 
-    from api.models.shopModel import Shop
+    from api.models.shop_model.shopModel import Shop
 
 
 class UserPhone(SQLModel):
@@ -74,6 +76,8 @@ class User(
         ),
     )
     shop: "Shop" = Relationship(back_populates="owner")
+    shop_memberships: list["ShopUser"] = Relationship(back_populates="user")
+    created_products: list["Product"] = Relationship(back_populates="creator")
 
     @property
     def roles(self) -> list["Role"]:
@@ -164,6 +168,12 @@ class UserRoleRead(SQLModel):
     permissions: list[str]
 
 
+class UserShopRead(SQLModel):
+    id: int
+    name: str
+    slug: str
+
+
 class UserReadBase(TimeStampReadModel):
     id: int
     full_name: str
@@ -182,6 +192,7 @@ class UserReadBase(TimeStampReadModel):
 
 class UserRead(SQLModel, UserReadBase):
     roles: Optional[List[UserRoleRead]] = None
+    shop: Optional[UserShopRead] = None
     pass
 
 

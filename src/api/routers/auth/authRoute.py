@@ -134,7 +134,7 @@ def register_user(
     )
 
 
-@router.post("/login", response_model=dict)
+@router.post("/login", response_model=UserRead)
 def login_user(
     request: LoginRequest,
     response: Response,
@@ -177,9 +177,11 @@ def login_user(
 
     # Use properties instead of user.roles
     user_dict = user_read.model_dump()
+    print({"============user_dict": user_dict})
     roles = (
         user_dict["roles"] if "roles" in user_dict and len(user_dict["roles"]) else None
     )
+    shop = user_dict["shop"] if "shop" in user_dict and user_dict["shop"] else None
 
     user_data = {
         "id": user.id,
@@ -188,6 +190,7 @@ def login_user(
         "is_root": user.is_root or False,
         "roles": roles,
         "verified": user.verified or False,
+        "shop": shop,
     }
 
     # Print(user_data)

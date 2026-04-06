@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlmodel import select
 from starlette.datastructures import UploadFile
 from src.api.core.utility import uniqueSlugify
-from src.api.core.operation import listRecords, serialize_obj
+from src.api.core.operation import listRecords, serialize_obj, updateOp
 from src.api.core.response import api_response, raiseExceptions
 from src.api.core.dependencies import (
     GetSession,
@@ -11,17 +11,14 @@ from src.api.core.dependencies import (
     requireAdmin,
     verifiedUser,
 )
-from src.api.models.shopModel import (
+from src.api.models.shop_model.shopModel import (
     Shop,
     ShopForm,
     ShopRead,
     ShopReadWithOwner,
 )
 from src.api.core.operation.media import (
-    delete_media_items,
     deleteMediaFiles,
-    entryMedia,
-    uploadImage,
     uploadMediaFiles,
     uploadSingleMedia,
 )
@@ -37,7 +34,7 @@ async def create_ride(
 ):
     user_id = user.get("id")
 
-    request.slug = uniqueSlugify(session, Shop, "string")
+    request.slug = uniqueSlugify(session, Shop, request.name)
 
     request.owner_id = user_id
 
@@ -53,8 +50,42 @@ async def create_ride(
 
     return api_response(
         201,
-        "Shop Created Successfully",
+        "Shop Updated Successfully",
         ShopRead.model_validate(shop),
+    )
+
+
+@router.put("/update", response_model=ShopRead)
+async def update_ride(
+    user: verifiedUser,
+    session: GetSession,
+    request: ShopForm = Depends(),
+):
+    user_id = user.get("id")
+    read = session.exec(select(Shop).where(Shop.owner_id == user_id)).first()
+
+    raiseExceptions((read, 404, "Shop not found"))
+    if request.name:
+        request.slug = uniqueSlugify(session, Shop, request.name)
+
+    if isinstance(request.cover_image, UploadFile):
+        await deleteMediaFiles(session, read.cover_image)
+        request.cover_image = await uploadSingleMedia(request.cover_image, session)
+
+    if isinstance(request.logo, UploadFile):
+        await deleteMediaFiles(session, read.logo)
+        request.logo = await uploadSingleMedia(request.logo, session)
+
+    # ✅ update shop
+    update_data = updateOp(read, request, session)
+
+    session.commit()
+    session.refresh(update_data)
+
+    return api_response(
+        201,
+        "Shop Created Successfully",
+        ShopRead.model_validate(update_data),
     )
 
 

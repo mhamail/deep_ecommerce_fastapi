@@ -11,7 +11,7 @@ from src.api.models.utils import clean, clean_json
 from src.api.models.baseModel import TimeStampReadModel, TimeStampedModel
 
 if TYPE_CHECKING:
-    from src.api.models import User
+    from src.api.models import User, Product, ShopUser
 
 
 class Shop(TimeStampedModel, table=True):
@@ -31,6 +31,8 @@ class Shop(TimeStampedModel, table=True):
 
     # Relationships
     owner: "User" = Relationship(back_populates="shop")
+    products: list["Product"] = Relationship(back_populates="shop")
+    members: list["ShopUser"] = Relationship(back_populates="shop")
 
 
 class ShopForm:

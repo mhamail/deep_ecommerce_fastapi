@@ -20,6 +20,7 @@ class UserRole(TimeStampedModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)  # type: ignore
     user_id: int = Field(foreign_key="users.id")
     role_id: int = Field(foreign_key="roles.id")
+    shop_id: Optional[int] = Field(foreign_key="shops.id")
 
     __table_args__ = (UniqueConstraint("user_id", "role_id", name="uq_user_role"),)
 
