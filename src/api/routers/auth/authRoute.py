@@ -7,6 +7,7 @@ from pydantic import EmailStr
 from sqlmodel import or_, select
 
 from sqlalchemy.orm import selectinload
+from src.api.routers.auth.function import validate_default_shop
 from src.api.core.smtp import send_email
 from src.config import ACCESS_TOKEN_EXPIRE_MINUTES, DOMAIN, SECRET_KEY
 from src.api.models.role_model.userRoleModel import UserRole
@@ -182,6 +183,13 @@ def login_user(
         user_dict["roles"] if "roles" in user_dict and len(user_dict["roles"]) else None
     )
     shop = user_dict["shop"] if "shop" in user_dict and user_dict["shop"] else None
+    shops_member = (
+        user_dict["shops_member"]
+        if "shops_member" in user_dict and len(user_dict["shops_member"])
+        else None
+    )
+    default_shop = validate_default_shop(user_dict)
+    print({"default_shop": default_shop, "shop": shop, "shops_member": shops_member})
 
     user_data = {
         "id": user.id,
@@ -191,6 +199,8 @@ def login_user(
         "roles": roles,
         "verified": user.verified or False,
         "shop": shop,
+        "shops_member": shops_member,
+        "default_shop": default_shop,
     }
 
     # Print(user_data)

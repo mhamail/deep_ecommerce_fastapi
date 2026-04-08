@@ -30,7 +30,10 @@ class Shop(TimeStampedModel, table=True):
     address: Optional[dict] = Field(default=None, sa_column=Column(JSON))
 
     # Relationships
-    owner: "User" = Relationship(back_populates="shop")
+    owner: "User" = Relationship(
+        back_populates="shop",
+        sa_relationship_kwargs={"foreign_keys": "[Shop.owner_id]"},
+    )
     products: list["Product"] = Relationship(back_populates="shop")
     members: list["ShopUser"] = Relationship(back_populates="shop")
 
@@ -63,7 +66,7 @@ class ShopRead(SQLModel, TimeStampReadModel):
     is_active: bool
 
 
-class UserReadRide(SQLModel):
+class UserReadShop(SQLModel):
     id: int
     full_name: str
     email: Optional[str] = None
@@ -72,4 +75,4 @@ class UserReadRide(SQLModel):
 
 
 class ShopReadWithOwner(ShopRead):
-    owner: UserReadRide
+    owner: UserReadShop

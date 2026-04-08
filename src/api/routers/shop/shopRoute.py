@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends
 from sqlmodel import select
 from starlette.datastructures import UploadFile
+from src.api.models.shop_model.ShopChildModel import ShopUser
+from src.api.models.userModel import DefaultShopId, User
 from src.api.core.utility import uniqueSlugify
 from src.api.core.operation import listRecords, serialize_obj, updateOp
 from src.api.core.response import api_response, raiseExceptions
@@ -10,6 +12,7 @@ from src.api.core.dependencies import (
     requirePermission,
     requireAdmin,
     verifiedUser,
+    requireSignin,
 )
 from src.api.models.shop_model.shopModel import (
     Shop,
@@ -83,8 +86,8 @@ async def update_ride(
     session.refresh(update_data)
 
     return api_response(
-        201,
-        "Shop Created Successfully",
+        200,
+        "Shop Updated Successfully",
         ShopRead.model_validate(update_data),
     )
 
@@ -153,3 +156,34 @@ def list(
         Model=Shop,
         Schema=ShopReadWithOwner,
     )
+
+
+@router.post("/set-default-shop")
+def set_default_shop(
+    request: DefaultShopId,
+    session: GetSession,
+    user: requireSignin,
+):
+    # ✅ check membership
+    membership = session.exec(
+        select(ShopUser.id).where(
+            ShopUser.user_id == user["id"],
+            ShopUser.shop_id == request.shop_id,
+        )
+    ).first()
+    shop = session.exec(
+        select(Shop.id).where(Shop.owner_id == user["id"], Shop.id == request.shop_id)
+    ).first()
+
+    if not membership and not shop:
+        return api_response(403, "You are not part of this shop")
+
+    # ✅ update user
+    db_user = session.get(User, user["id"])
+    db_user.default_shop_id = request.shop_id
+
+    session.add(db_user)
+    session.commit()
+    session.refresh(db_user)
+
+    return api_response(200, "Default shop updated successfully")

@@ -8,6 +8,7 @@ from sqlmodel import Field, Index, Relationship, SQLModel, text
 
 from src.api.models.role_model.roleModel import RoleRead
 from src.api.models.baseModel import TimeStampReadModel, TimeStampedModel
+from pydantic import computed_field
 
 if TYPE_CHECKING:
     from src.api.models.productModel import Product
@@ -56,6 +57,9 @@ class User(
     country_code: str = Field(description="Country code (e.g., PK)")
     currency_code: str = Field(description="Currency code (e.g., PKR)")
     currency_symbol: str = Field(description="Currency symbol (e.g., ₨)")
+    default_shop_id: Optional[int] = Field(
+        default=None, foreign_key="shops.id", index=True
+    )
     # Relationships
     user_roles: list["UserRole"] = Relationship(back_populates="user")
 
@@ -75,7 +79,16 @@ class User(
             postgresql_where=text("email_verified = true"),
         ),
     )
-    shop: "Shop" = Relationship(back_populates="owner")
+    # owner relationship
+    shop: Optional["Shop"] = Relationship(
+        back_populates="owner",
+        sa_relationship_kwargs={"foreign_keys": "[Shop.owner_id]"},
+    )
+
+    # default shop
+    default_shop: Optional["Shop"] = Relationship(
+        sa_relationship_kwargs={"foreign_keys": "[User.default_shop_id]"}
+    )
     shop_memberships: list["ShopUser"] = Relationship(back_populates="user")
     created_products: list["Product"] = Relationship(back_populates="creator")
 
@@ -94,6 +107,12 @@ class User(
         for role in self.roles:
             perms.extend(role.permissions)
         return perms
+
+    @property
+    def shops_member(self):
+        return [
+            membership.shop for membership in self.shop_memberships if membership.shop
+        ]
 
 
 class UserCreate(SQLModel):
@@ -162,6 +181,10 @@ class UserUpdateForm:
         self.image: Optional[Union[UploadFile, str]] = image
 
 
+class DefaultShopId(SQLModel):
+    shop_id: int
+
+
 class UserRoleRead(SQLModel):
     id: int
     name: str
@@ -172,6 +195,13 @@ class UserShopRead(SQLModel):
     id: int
     name: str
     slug: str
+    owner_id: int  # must be included
+
+    @computed_field
+    @property
+    def is_owner(self) -> bool:
+        # fallback (will override using context)
+        return False
 
 
 class UserReadBase(TimeStampReadModel):
@@ -188,11 +218,14 @@ class UserReadBase(TimeStampReadModel):
     country_code: str
     currency_code: str
     currency_symbol: str
+    default_shop_id: Optional[int] = None
 
 
 class UserRead(SQLModel, UserReadBase):
     roles: Optional[List[UserRoleRead]] = None
     shop: Optional[UserShopRead] = None
+    default_shop: Optional[UserShopRead] = None
+    shops_member: Optional[List[UserShopRead]] = None
     pass
 
 

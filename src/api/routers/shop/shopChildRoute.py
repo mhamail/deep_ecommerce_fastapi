@@ -1,7 +1,9 @@
+from typing import List
+
 from fastapi import APIRouter, Depends
 from sqlmodel import select
 from starlette.datastructures import UploadFile
-from src.api.models.shop_model.shopModel import Shop
+from src.api.models.shop_model.shopModel import Shop, ShopForm
 from src.api.core.utility import uniqueSlugify
 from src.api.core.operation import listRecords, serialize_obj, updateOp
 from src.api.core.response import api_response, raiseExceptions
@@ -16,6 +18,7 @@ from src.api.models.shop_model.ShopChildModel import (
     ShopUser,
     ShopUserRead,
     ShopUserCreate,
+    ShopUserReadWithUser,
     ShopUserUpdate,
 )
 from src.api.models.userModel import User
@@ -24,24 +27,144 @@ router = APIRouter(prefix="/shop-users", tags=["Shop Users"])
 
 
 @router.post("/create", response_model=ShopUserRead)
-async def create_ride(
+async def create(
     session: GetSession,
-    request: ShopUserCreate = Depends(),
-    user=requirePermission(["shop_admin"]),
+    request: ShopUserCreate,
+    user=requirePermission("shop_admin"),
 ):
+    # ✅ Get current shop from logged-in user
+    current_shop = user.get("shop")
+    print("Current Shop:", current_shop, "User:", user)  # Debugging line]
+    if not current_shop:
+        return api_response(400, "No active shop selected")
 
-    user_id = session.exec(select(User).where(User.email == request.email)).first()
-    request.shop_id = user.get("shop").get("id")
+    shop_id = current_shop.get("id")
+
+    # ✅ Find user by email
+    db_user = session.exec(select(User).where(User.email == request.email)).first()
+
+    if not db_user:
+        return api_response(404, "User not found")
+
+    if db_user.id == user.get("id"):
+        return api_response(400, "You cannot add yourself to the shop")
 
     # ✅ Create shop User
-    shopUser = ShopUser(**request.model_dump())
+    # ✅ Assign shop_id + user_id
+    shop_user = ShopUser(
+        user_id=db_user.id,
+        shop_id=shop_id,
+        is_active=True,
+    )
 
-    session.add(shopUser)
+    session.add(shop_user)
     session.commit()
-    session.refresh(shopUser)
+    session.refresh(shop_user)
 
     return api_response(
         201,
         "Shop Updated Successfully",
-        ShopUserRead.model_validate(shopUser),
+        ShopUserRead.model_validate(shop_user),
+    )
+
+
+@router.put("/update/{id}", response_model=ShopUserRead)
+async def update_ride(
+    id: int,
+    session: GetSession,
+    request: ShopUserUpdate,
+    user=requirePermission("shop_admin"),
+):
+
+    read = session.get(ShopUser, id)
+    raiseExceptions((read, 404, "Shop User not found"))
+
+    # ✅ update shop
+    update_data = updateOp(read, request, session)
+
+    session.commit()
+    session.refresh(update_data)
+
+    return api_response(
+        200,
+        "Shop User Updated Successfully",
+        ShopUserRead.model_validate(update_data),
+    )
+
+
+@router.get("/read/{user_id}/{shop_id}", response_model=ShopUserReadWithUser)
+def findOne(
+    user_id: int,
+    shop_id: int,
+    session: GetSession,
+):
+
+    read = session.exec(
+        select(ShopUser).where(ShopUser.user_id == user_id, ShopUser.shop_id == shop_id)
+    ).first()
+
+    raiseExceptions((read, 404, "Shop User not found"))
+    data = ShopUserReadWithUser.model_validate(read)
+
+    return api_response(200, "Shop User Found", data)
+
+
+@router.delete("/delete/{id}")
+def findOne(
+    id: int,
+    session: GetSession,
+    user=requirePermission("shop_admin"),
+):
+
+    shop_user = session.get(ShopUser, id)
+
+    raiseExceptions((shop_user, 404, "Shop User not found"))
+    session.delete(shop_user)
+    session.commit()
+
+    return api_response(200, f"Member {shop_user.user_id} deleted")
+
+
+@router.delete("/delete-many")
+def delete_many(
+    user_ids: List[int],
+    shop_ids: List[int],
+    session: GetSession,
+    user=requirePermission("shop_admin"),
+):
+    shop_users = session.exec(
+        select(ShopUser).where(
+            ShopUser.user_id.in_(user_ids), ShopUser.shop_id.in_(shop_ids)
+        )
+    ).all()
+
+    if not shop_users:
+        return api_response(404, "Shop Users not found")
+
+    session.delete(shop_users)
+    session.commit()
+
+    return api_response(
+        200,
+        f"Deleted {len(shop_users)} shop users",
+        [ShopUserReadWithUser.model_validate(su) for su in shop_users],
+    )
+
+
+@router.get("/list", response_model=list[ShopUserReadWithUser])
+def list(
+    query_params: ListQueryParams,
+    user=requirePermission("shop_admin"),
+):
+    query_params = vars(query_params)
+    searchFields = ["user.full_name", "user.email", "shop.name"]
+    shop_id = user.get("shop", {}).get("id")
+    print("Shop ID for listing shop users:", shop_id)  # Debugging line
+
+    return listRecords(
+        query_params=query_params,
+        searchFields=searchFields,
+        Model=ShopUser,
+        Schema=ShopUserReadWithUser,
+        customFilters=[["shop_id", shop_id]],
     )
