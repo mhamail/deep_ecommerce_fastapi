@@ -1,7 +1,11 @@
 from typing import Optional
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
+from sqlmodel import select
 from starlette.datastructures import UploadFile as StarletteUploadFile
 
+from src.api.models.role_model.userRoleModel import UserRole
+from sqlalchemy.orm import selectinload
+from src.api.routers.auth.function import validate_default_shop
 from src.api.core.operation import listop
 from src.api.core.operation.media import delete_media_items, entryMedia, uploadImage
 from src.api.core.security import create_access_token, hash_password
@@ -19,8 +23,42 @@ from src.api.models.userModel import (
     UserUpdateForm,
 )
 
-
 router = APIRouter(prefix="/user", tags=["user"])
+
+
+def get_current_user_data(
+    request: Request, user: requireSignin, session: GetSession, response_model=UserRead
+):
+    # ✅ CACHE inside request (IMPORTANT)
+    if hasattr(request.state, "user_data"):
+        return request.state.user_data
+    user_id = user.get("id")
+    db_user = session.get(User, user_id)  # Like findById
+    raiseExceptions((db_user, 400, "User not found"))
+    user_read = UserRead.model_validate(db_user)
+
+    # build your user_data ONCE
+    user_data = {
+        "id": user_read.id,
+        "email": user_read.email,
+        "phone": user_read.phone or None,
+        "verified": user_read.verified or False,
+        "roles": user_read.roles,
+        "shop": user_read.shop,
+        "shops_member": db_user.shops_member,
+        "default_shop": validate_default_shop(user_read.model_dump()),
+        "is_root": user_read.is_root,
+    }
+
+    # 🔥 store in request cache
+    request.state.user_data = user_data
+
+    return user_data
+
+
+@router.get("/me")
+def get_me(user_data=Depends(get_current_user_data)):
+    return user_data
 
 
 @router.get("/read", response_model=UserRead)
@@ -88,6 +126,10 @@ async def update_user(
         )
 
     updated_user = updateOp(db_user, request, session)
+    # Token version update
+    updated_user.token_version = (
+        db_user.token_version + 1 if db_user.token_version else 1
+    )
 
     if request.password:
         updated_user.password = hash_password(request.password)
@@ -97,7 +139,7 @@ async def update_user(
         updated_user.verified = False
     if request.email and request.email != user.get("email"):
 
-        # ✅ Create JWT token (valid for lifetime)
+        # ✅ Create JWT token
         verify_token = create_access_token({"id": db_user.id, "email": db_user.email})
         updated_user.email_verified = False
         # Load template

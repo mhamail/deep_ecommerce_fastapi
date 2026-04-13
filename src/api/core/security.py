@@ -16,6 +16,11 @@ from fastapi.security import (
     HTTPBearer,
 )
 
+
+from src.lib.db_con import get_session
+from src.api.models.userModel import User, UserRead
+
+
 from src.config import SECRET_KEY, ACCESS_TOKEN_EXPIRE
 from src.api.core.response import api_response
 
@@ -46,6 +51,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 def create_access_token(
     user_data: dict,
+    token_version: Optional[int] = int,
     refresh: Optional[bool] = False,
     expires: Optional[timedelta] = None,
 ):
@@ -61,6 +67,7 @@ def create_access_token(
         "user": user_data,
         "exp": expire,
         "refresh": refresh,
+        "token_version": token_version,
     }
     token = jwt.encode(
         payload,
@@ -124,6 +131,7 @@ def is_authenticated(authorization: Optional[str] = Header(None)):
 
 
 def require_signin(
+    session: Session = Depends(get_session),
     credentials: HTTPAuthorizationCredentials = Security(HTTPBearer()),
 ) -> Dict:
     token = credentials.credentials  # Extract token from Authorization header
@@ -141,6 +149,12 @@ def require_signin(
                 status.HTTP_401_UNAUTHORIZED,
                 "Invalid token: no user data",
             )
+        db_user = session.get(User, user["id"])
+        if db_user is None:
+            api_response(
+                status.HTTP_401_UNAUTHORIZED,
+                "Invalid token: no user data",
+            )
 
         if payload.get("refresh") is True:
             api_response(
@@ -148,7 +162,10 @@ def require_signin(
                 "Refresh token is not allowed for this route",
             )
 
-        return user  # contains {"email": ..., "id": ...}
+        if db_user.token_version != payload.get("token_version"):
+            return api_response(401, "Session expired. Please login again.")
+
+        return user
 
     except JWTError as e:
         print(e)

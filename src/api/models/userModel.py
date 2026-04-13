@@ -60,6 +60,7 @@ class User(
     default_shop_id: Optional[int] = Field(
         default=None, foreign_key="shops.id", index=True
     )
+    token_version: Optional[int] = Field(default=0)
     # Relationships
     user_roles: list["UserRole"] = Relationship(back_populates="user")
 
@@ -216,6 +217,7 @@ class UserReadBase(TimeStampReadModel):
     contactinfo: Optional[Dict[str, Any]] = None
     country: str
     country_code: str
+    verified: bool
     currency_code: str
     currency_symbol: str
     default_shop_id: Optional[int] = None

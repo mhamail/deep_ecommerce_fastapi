@@ -1,12 +1,14 @@
 from datetime import datetime, timedelta, timezone
 from random import randint
+from typing import Annotated
 
-from fastapi import APIRouter, Body, Request, Response
+from fastapi import APIRouter, Body, Depends, Request, Response
 from jose import jwt
 from pydantic import EmailStr
 from sqlmodel import or_, select
 
 from sqlalchemy.orm import selectinload
+
 from src.api.routers.auth.function import validate_default_shop
 from src.api.core.smtp import send_email
 from src.config import ACCESS_TOKEN_EXPIRE_MINUTES, DOMAIN, SECRET_KEY
@@ -41,10 +43,7 @@ router = APIRouter(tags=["Auth"])
 
 
 @router.post("/init", response_model=UserRead)
-def initialize_first_user(
-    request: UserCreate,
-    session: GetSession,
-):
+def initialize_first_user(request: UserCreate, session: GetSession):
 
     # Create first user with admin role
     hashed_password = hash_password(request.password)
@@ -177,35 +176,41 @@ def login_user(
         return api_response(403, "User account is disabled")
 
     # Use properties instead of user.roles
-    user_dict = user_read.model_dump()
-    print({"============user_dict": user_dict})
-    roles = (
-        user_dict["roles"] if "roles" in user_dict and len(user_dict["roles"]) else None
-    )
-    shop = user_dict["shop"] if "shop" in user_dict and user_dict["shop"] else None
-    shops_member = (
-        user_dict["shops_member"]
-        if "shops_member" in user_dict and len(user_dict["shops_member"])
-        else None
-    )
-    default_shop = validate_default_shop(user_dict)
-    print({"default_shop": default_shop, "shop": shop, "shops_member": shops_member})
+    # user_dict = user_read.model_dump()
+    # print({"============user_dict": user_dict})
+    # roles = (
+    #     user_dict["roles"] if "roles" in user_dict and len(user_dict["roles"]) else None
+    # )
+    # shop = user_dict["shop"] if "shop" in user_dict and user_dict["shop"] else None
+    # shops_member = (
+    #     user_dict["shops_member"]
+    #     if "shops_member" in user_dict and len(user_dict["shops_member"])
+    #     else None
+    # )
+    # default_shop = validate_default_shop(user_dict)
+    # print({"default_shop": default_shop, "shop": shop, "shops_member": shops_member})
 
     user_data = {
         "id": user.id,
-        "email": user.email,
-        "phone": user.phone or None,
-        "is_root": user.is_root or False,
-        "roles": roles,
-        "verified": user.verified or False,
-        "shop": shop,
-        "shops_member": shops_member,
-        "default_shop": default_shop,
+        # "email": user.email,
+        # "phone": user.phone or None,
+        # "is_root": user.is_root or False,
+        # "verified": user.verified or False,
+        # "roles": roles,
+        # "shop": shop,
+        # "shops_member": shops_member,
+        # "default_shop": default_shop,
     }
 
     # Print(user_data)
-    access_token = create_access_token(user_data=user_data)
-    refresh_token = create_access_token(user_data=user_data, refresh=True)
+    access_token = create_access_token(
+        user_data=user_data, token_version=user.token_version
+    )
+    refresh_token = create_access_token(
+        user_data=user_data,
+        token_version=user.token_version,
+        refresh=True,
+    )
 
     exp_time = datetime.now(timezone.utc) + timedelta(
         minutes=ACCESS_TOKEN_EXPIRE_MINUTES

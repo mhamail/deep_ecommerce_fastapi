@@ -1,3 +1,5 @@
+from urllib import request
+
 from fastapi import APIRouter, Depends
 from sqlmodel import select
 from starlette.datastructures import UploadFile
@@ -30,7 +32,7 @@ router = APIRouter(prefix="/shop", tags=["Shop"])
 
 
 @router.post("/create", response_model=ShopRead)
-async def create_ride(
+async def create(
     user: verifiedUser,
     session: GetSession,
     request: ShopForm = Depends(),
@@ -125,21 +127,25 @@ def findOne(
     return api_response(200, "Shop Found", data)
 
 
-@router.delete("/delete/{id}", response_model=dict)
+@router.delete("/delete/{id}")
 async def delete_role(
     id: int,
     session: GetSession,
-    user=requirePermission("shop_delete"),
+    # user=requirePermission("shop_delete"),
 ):
     shop = session.get(Shop, id)
 
     raiseExceptions((shop, 404, "Shop Data not found"))
+    db_user = session.get(User, shop.owner_id)
+    if db_user:
+        db_user.default_shop_id = None
+        session.add(db_user)
 
     await deleteMediaFiles(session, shop.cover_image, shop.logo)
 
     session.delete(shop)
     session.commit()
-    return api_response(200, f"Shop {shop.name} deleted")
+    return api_response(200, f"The Shop {shop.name} deleted")
 
 
 @router.get("/list", response_model=list[ShopReadWithOwner])
