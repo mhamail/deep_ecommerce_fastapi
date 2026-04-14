@@ -76,7 +76,10 @@ def uniqueSlugify(session, model, name: str, slug_field: str = "slug") -> str:
 
 
 def Print(data, title="Result"):
-    print(f"{title}\n", json.dumps(data, indent=2, default=str))
+    print(
+        f"====================={title}====================\n",
+        json.dumps(data, indent=2, default=str),
+    )
 
 
 def parse_list(value):

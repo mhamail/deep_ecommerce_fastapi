@@ -9,7 +9,6 @@ from sqlmodel import or_, select
 
 from sqlalchemy.orm import selectinload
 
-from src.api.routers.auth.function import validate_default_shop
 from src.api.core.smtp import send_email
 from src.config import ACCESS_TOKEN_EXPIRE_MINUTES, DOMAIN, SECRET_KEY
 from src.api.models.role_model.userRoleModel import UserRole
@@ -29,6 +28,7 @@ from src.api.core.dependencies import (
     requireSignin,
     requireAdmin,
     requirePermission,
+    requireShopAdmin,
 )
 from src.api.models.userModel import (
     LoginRequest,
@@ -376,3 +376,14 @@ def get_admin_data(
     user=requirePermission("system:*"),
 ):
     return {"message": f"Hello Admin {user}"}
+
+
+@router.get("/shop-admin")
+def get_admin_data(
+    user: requireShopAdmin,
+):
+    return api_response(
+        200,
+        f"Hello Shop Admin {user['email']}",
+        {"user": user},
+    )

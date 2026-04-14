@@ -3,9 +3,11 @@ from urllib import request
 from fastapi import APIRouter, Depends
 from sqlmodel import select
 from starlette.datastructures import UploadFile
+from src.api.models.role_model.userRoleModel import UserRole
+from src.api.models.role_model.roleModel import Role
 from src.api.models.shop_model.ShopChildModel import ShopUser
 from src.api.models.userModel import DefaultShopId, User
-from src.api.core.utility import uniqueSlugify
+from src.api.core.utility import slugify, uniqueSlugify
 from src.api.core.operation import listRecords, serialize_obj, updateOp
 from src.api.core.response import api_response, raiseExceptions
 from src.api.core.dependencies import (
@@ -49,7 +51,21 @@ async def create(
     # ✅ Create shop
     shop = Shop(**data)
 
+    session.flush()
     session.add(shop)
+
+    shop_admin_role = session.exec(
+        select(Role.id).where(Role.name == "Shop Admin")
+    ).first()
+
+    # Assign shop admin role to the user via UserRole
+    shop_user_role = UserRole(
+        user_id=user.get("id"),
+        role_id=shop_admin_role,
+        shop_id=shop.id,
+    )
+    session.add(shop_user_role)
+
     session.commit()
     session.refresh(shop)
 

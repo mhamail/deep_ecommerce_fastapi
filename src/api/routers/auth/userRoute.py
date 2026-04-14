@@ -5,10 +5,14 @@ from starlette.datastructures import UploadFile as StarletteUploadFile
 
 from src.api.models.role_model.userRoleModel import UserRole
 from sqlalchemy.orm import selectinload
-from src.api.routers.auth.function import validate_default_shop
+
 from src.api.core.operation import listop
 from src.api.core.operation.media import delete_media_items, entryMedia, uploadImage
-from src.api.core.security import create_access_token, hash_password
+from src.api.core.security import (
+    create_access_token,
+    hash_password,
+    require_signin_user,
+)
 from src.api.core.smtp import send_email
 from src.api.routers.auth.authRoute import exist_verified_email
 from src.config import DOMAIN
@@ -26,38 +30,8 @@ from src.api.models.userModel import (
 router = APIRouter(prefix="/user", tags=["user"])
 
 
-def get_current_user_data(
-    request: Request, user: requireSignin, session: GetSession, response_model=UserRead
-):
-    # ✅ CACHE inside request (IMPORTANT)
-    if hasattr(request.state, "user_data"):
-        return request.state.user_data
-    user_id = user.get("id")
-    db_user = session.get(User, user_id)  # Like findById
-    raiseExceptions((db_user, 400, "User not found"))
-    user_read = UserRead.model_validate(db_user)
-
-    # build your user_data ONCE
-    user_data = {
-        "id": user_read.id,
-        "email": user_read.email,
-        "phone": user_read.phone or None,
-        "verified": user_read.verified or False,
-        "roles": user_read.roles,
-        "shop": user_read.shop,
-        "shops_member": db_user.shops_member,
-        "default_shop": validate_default_shop(user_read.model_dump()),
-        "is_root": user_read.is_root,
-    }
-
-    # 🔥 store in request cache
-    request.state.user_data = user_data
-
-    return user_data
-
-
 @router.get("/me")
-def get_me(user_data=Depends(get_current_user_data)):
+def get_me(user_data=Depends(require_signin_user)):
     return user_data
 
 

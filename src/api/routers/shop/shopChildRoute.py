@@ -7,7 +7,12 @@ from src.api.models.shop_model.shopModel import Shop, ShopForm
 from src.api.core.utility import uniqueSlugify
 from src.api.core.operation import listRecords, updateOp
 from src.api.core.response import api_response, raiseExceptions
-from src.api.core.dependencies import GetSession, ListQueryParams, requirePermission
+from src.api.core.dependencies import (
+    GetSession,
+    ListQueryParams,
+    requirePermission,
+    requireShopAdmin,
+)
 from src.api.models.shop_model.ShopChildModel import (
     ShopUser,
     ShopUserRead,
@@ -24,7 +29,7 @@ router = APIRouter(prefix="/shop-users", tags=["Shop Users"])
 async def create(
     session: GetSession,
     request: ShopUserCreate,
-    user=requirePermission("shop_admin"),
+    user: requireShopAdmin,
 ):
     # ✅ Get current shop from logged-in user
     current_shop = user.get("shop")

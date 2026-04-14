@@ -8,6 +8,7 @@ from fastapi import (
     Depends,
     HTTPException,
     Header,
+    Request,
     Security,
     status,
 )
@@ -17,12 +18,19 @@ from fastapi.security import (
 )
 
 
+from src.api.models.shop_model.shopModel import Shop
+from src.api.models.role_model.roleModel import Role
+from src.api.models.shop_model.ShopChildModel import ShopUser
+from src.api.core.utility import Print
+from src.api.models.role_model.userRoleModel import UserRole
+from src.api.routers.auth.function import validate_default_shop
 from src.lib.db_con import get_session
 from src.api.models.userModel import User, UserRead
+from sqlalchemy.orm import selectinload
 
 
 from src.config import SECRET_KEY, ACCESS_TOKEN_EXPIRE
-from src.api.core.response import api_response
+from src.api.core.response import api_response, raiseExceptions
 
 
 ALGORITHM = "HS256"
@@ -172,7 +180,60 @@ def require_signin(
         return api_response(status.HTTP_401_UNAUTHORIZED, "Invalid token", data=str(e))
 
 
-def verified_user(user: dict = Depends(require_signin)):
+def require_signin_user(
+    request: Request,
+    user: dict = Depends(require_signin),
+    session: Session = Depends(get_session),
+):
+    # ✅ CACHE inside request (IMPORTANT)
+    if hasattr(request.state, "user_data"):
+        return request.state.user_data
+    user_id = user.get("id")
+
+    db_user = (
+        session.exec(
+            select(User)
+            .options(
+                selectinload(User.user_roles)
+                .selectinload(UserRole.role)
+                .load_only(
+                    Role.id,
+                    Role.name,
+                    Role.permissions,
+                    Role.is_active,
+                ),
+                selectinload(User.shop).load_only(Shop.id, Shop.name),
+                selectinload(User.shop_memberships)
+                .selectinload(ShopUser.shop)
+                .load_only(Shop.id, Shop.name),
+            )
+            .where(User.id == user_id)
+        )
+        .scalars()
+        .first()
+    )  # Like findById
+    raiseExceptions((db_user, 400, "User not found"))
+
+    # build your user_data ONCE
+    user_data = {
+        "id": db_user.id,
+        "email": db_user.email,
+        "phone": db_user.phone or None,
+        "verified": db_user.verified or False,
+        "roles": db_user.roles,
+        "shop": db_user.shop,
+        "shops_member": db_user.shop_memberships,
+        "default_shop": db_user.default_shop,
+        "is_root": db_user.is_root,
+    }
+
+    # 🔥 store in request cache
+    request.state.user_data = user_data
+
+    return user_data
+
+
+def verified_user(user: dict = Depends(require_signin_user)):
     if user.get("verified") is False or user.get("phone") is None:
         api_response(
             status.HTTP_423_LOCKED,
@@ -181,6 +242,7 @@ def verified_user(user: dict = Depends(require_signin)):
     return user
 
 
+# fn
 def get_user_permissions(user: dict) -> set[str]:
     roles = user.get("roles", [])
 
@@ -191,13 +253,14 @@ def get_user_permissions(user: dict) -> set[str]:
     return permissions
 
 
+# fn
 def has_role(user: dict, role_name: str) -> bool:
     roles = user.get("roles", [])
     return any(r.get("name") == role_name for r in roles)
 
 
 def require_admin(
-    user: dict = Depends(require_signin),
+    user: dict = Depends(require_signin_user),
 ):
     try:
         roles = user.get("roles", [])
@@ -232,7 +295,7 @@ def require_admin(
 
 def require_permission(*permissions: str):
     def permission_checker(
-        user: dict = Depends(require_signin),
+        user: dict = Depends(require_signin_user),
     ):
         roles = user.get("roles", [])
 
@@ -262,3 +325,24 @@ def require_permission(*permissions: str):
         return api_response(403, "Permission denied")
 
     return permission_checker
+
+
+def require_shop_admin(user: dict = Depends(require_signin_user)):
+    default_shop = user.get("default_shop")
+
+    if not default_shop:
+        api_response(403, "No active shop selected")
+
+    roles = user.get("roles", [])
+
+    print("==============================", roles, default_shop)
+
+    is_admin = any(
+        r.get("name") == "Shop Admin" and r.get("shop_id") == default_shop.id
+        for r in roles
+    )
+
+    if not is_admin:
+        api_response(403, "Shop admin access required")
+
+    return user

@@ -8,6 +8,7 @@ from src.lib.db_con import get_session
 from src.api.core.security import (
     is_authenticated,
     require_permission,
+    require_shop_admin,
     require_signin,
     require_admin,
     verified_user,
@@ -21,6 +22,7 @@ requireAdmin = Annotated[dict, Depends(require_admin)]
 verifiedUser = Annotated[dict, Depends(verified_user)]
 isAuthenticated = Annotated[dict | None, Depends(is_authenticated)]
 ListQueryParams = Annotated[dict, Depends(list_query_params)]
+requireShopAdmin = Annotated[dict, Depends(require_shop_admin)]
 
 
 def requirePermission(*permissions: str):

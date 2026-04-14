@@ -93,10 +93,29 @@ class User(
     shop_memberships: list["ShopUser"] = Relationship(back_populates="user")
     created_products: list["Product"] = Relationship(back_populates="creator")
 
+    # @property
+    # def roles(self) -> list["Role"]:
+    #     """Return Role objects directly"""
+    #     return [ur.role for ur in self.user_roles if ur.role]
+
     @property
-    def roles(self) -> list["Role"]:
-        """Return Role objects directly"""
-        return [ur.role for ur in self.user_roles if ur.role]
+    def roles(self) -> list[dict]:
+        result = []
+
+        for ur in self.user_roles:
+            if not ur.role:
+                continue
+
+            result.append(
+                {
+                    "id": ur.role.id,
+                    "name": ur.role.name,
+                    "permissions": ur.role.permissions,
+                    "shop_id": ur.shop_id,
+                }
+            )
+
+        return result
 
     @property
     def role_names(self) -> list[str]:
@@ -104,10 +123,13 @@ class User(
 
     @property
     def permissions(self) -> list[str]:
-        perms = []
-        for role in self.roles:
-            perms.extend(role.permissions)
-        return perms
+        perms = set()
+
+        for ur in self.user_roles:
+            if ur.role:
+                perms.update(ur.role.permissions or [])
+
+        return list(perms)
 
     @property
     def shops_member(self):
