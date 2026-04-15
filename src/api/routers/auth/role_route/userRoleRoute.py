@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 from sqlmodel import select
 
+from src.api.models.role_model.roleModel import Role
 from src.api.core.operation import listRecords
 from src.api.core.response import api_response, raiseExceptions
 from src.api.core.dependencies import (
@@ -24,12 +25,18 @@ def create_role(
     session: GetSession,
     user=requirePermission(["role_create"]),
 ):
-    user = UserRole(**request.model_dump())  # Similar to new Role(req.body) in Mongoose
-    session.add(user)
+    role = session.get(Role, request.role_id)
+    raiseExceptions((role, 404, "Role not found"))
+
+    user_role = UserRole(
+        **request.model_dump()
+    )  # Similar to new Role(req.body) in Mongoose
+
+    session.add(user_role)
     session.commit()
-    session.refresh(user)
+    session.refresh(user_role)
     return api_response(
-        201, "Role Created Successfully", UserRoleRead.model_validate(user)
+        201, "Role Created Successfully", UserRoleRead.model_validate(user_role)
     )
 
 

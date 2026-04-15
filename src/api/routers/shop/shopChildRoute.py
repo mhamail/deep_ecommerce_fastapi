@@ -10,7 +10,7 @@ from src.api.core.response import api_response, raiseExceptions
 from src.api.core.dependencies import (
     GetSession,
     ListQueryParams,
-    requirePermission,
+    require_shop_permission,
     requireShopAdmin,
 )
 from src.api.models.shop_model.ShopChildModel import (
@@ -33,11 +33,13 @@ async def create(
 ):
     # ✅ Get current shop from logged-in user
     current_shop = user.get("shop")
-    print("Current Shop:", current_shop, "User:", user)  # Debugging line]
+
+    print("Current Shop:", current_shop)  # Debugging line]
+
     if not current_shop:
         return api_response(400, "No active shop selected")
 
-    shop_id = current_shop.get("id")
+    shop_id = current_shop.id
 
     # ✅ Find user by email
     db_user = session.exec(select(User).where(User.email == request.email)).first()
@@ -62,20 +64,24 @@ async def create(
 
     return api_response(
         201,
-        "Shop Updated Successfully",
-        ShopUserRead.model_validate(shop_user),
+        "Shop Member Added Successfully",
+        ShopUserReadWithUser.model_validate(shop_user),
     )
 
 
-@router.put("/update/{id}", response_model=ShopUserRead)
+@router.put("/update/{user_id}", response_model=ShopUserRead)
 async def update_ride(
-    id: int,
+    user_id: int,
     session: GetSession,
     request: ShopUserUpdate,
-    user=requirePermission("shop_admin"),
+    user: requireShopAdmin,
 ):
 
-    read = session.get(ShopUser, id)
+    read = session.exec(
+        select(ShopUser).where(
+            ShopUser.user_id == user_id, ShopUser.shop_id == user.get("shop", {}).id
+        )
+    ).first()
     raiseExceptions((read, 404, "Shop User not found"))
 
     # ✅ update shop
@@ -86,7 +92,7 @@ async def update_ride(
 
     return api_response(
         200,
-        "Shop User Updated Successfully",
+        "Shop Member Updated Successfully",
         ShopUserRead.model_validate(update_data),
     )
 
@@ -108,14 +114,18 @@ def findOne(
     return api_response(200, "Shop User Found", data)
 
 
-@router.delete("/delete/{id}")
+@router.delete("/delete/{user_id}")
 def findOne(
-    id: int,
+    user_id: int,
     session: GetSession,
-    user=requirePermission("shop_admin"),
+    user: requireShopAdmin,
 ):
 
-    shop_user = session.get(ShopUser, id)
+    shop_user = session.exec(
+        select(ShopUser).where(
+            ShopUser.user_id == user_id, ShopUser.shop_id == user.get("shop", {}).id
+        )
+    ).first()
 
     raiseExceptions((shop_user, 404, "Shop User not found"))
     session.delete(shop_user)
@@ -129,7 +139,7 @@ def delete_many(
     user_ids: List[int],
     shop_ids: List[int],
     session: GetSession,
-    user=requirePermission("shop_admin"),
+    user: requireShopAdmin,
 ):
     shop_users = session.exec(
         select(ShopUser).where(
@@ -153,11 +163,11 @@ def delete_many(
 @router.get("/list", response_model=list[ShopUserReadWithUser])
 def list(
     query_params: ListQueryParams,
-    user=requirePermission("shop_admin"),
+    user: requireShopAdmin,
 ):
     query_params = vars(query_params)
     searchFields = ["user.full_name", "user.email", "shop.name"]
-    shop_id = user.get("shop", {}).get("id")
+    shop_id = user.get("shop", {}).id
     print("Shop ID for listing shop users:", shop_id)  # Debugging line
 
     return listRecords(

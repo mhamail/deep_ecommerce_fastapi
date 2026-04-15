@@ -9,6 +9,7 @@ from src.api.core.security import (
     is_authenticated,
     require_permission,
     require_shop_admin,
+    require_shop_permission,
     require_signin,
     require_admin,
     verified_user,
@@ -27,3 +28,7 @@ requireShopAdmin = Annotated[dict, Depends(require_shop_admin)]
 
 def requirePermission(*permissions: str):
     return Depends(require_permission(*permissions))
+
+
+def requireShopPermission(*permissions: str):
+    return Depends(require_shop_permission(*permissions))

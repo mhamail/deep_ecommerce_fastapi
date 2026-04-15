@@ -333,12 +333,16 @@ def require_shop_admin(user: dict = Depends(require_signin_user)):
     if not default_shop:
         api_response(403, "No active shop selected")
 
+    default_shop_id = (
+        default_shop["id"] if isinstance(default_shop, dict) else default_shop.id
+    )
+
     roles = user.get("roles", [])
 
-    print("==============================", roles, default_shop)
+    user_permissions = get_user_permissions(user)
 
     is_admin = any(
-        r.get("name") == "Shop Admin" and r.get("shop_id") == default_shop.id
+        "shop:*" in user_permissions and r.get("shop_id") == default_shop_id
         for r in roles
     )
 
@@ -346,3 +350,40 @@ def require_shop_admin(user: dict = Depends(require_signin_user)):
         api_response(403, "Shop admin access required")
 
     return user
+
+
+def require_shop_permission(*permissions: str):
+    def checker(user: dict = Depends(require_signin_user)):
+        default_shop = user.get("default_shop")
+
+        if not default_shop:
+            api_response(403, "No active shop selected")
+        default_shop_id = (
+            default_shop["id"] if isinstance(default_shop, dict) else default_shop.id
+        )
+
+        roles = user.get("roles", [])
+
+        user_permissions = get_user_permissions(user)
+
+        # ✅ admin shortcut
+
+        for role in roles:
+            if role.get("shop_id") != default_shop_id:
+                continue
+            if role.get("shop_id") == default_shop_id and "shop:*" in user_permissions:
+                return user
+
+            flat_permissions = []
+            for p in permissions:
+                if isinstance(p, list):
+                    flat_permissions.extend(p)
+                else:
+                    flat_permissions.append(p)
+
+            if any(p in user_permissions for p in flat_permissions):
+                return user
+
+        api_response(403, "Permission denied")
+
+    return checker

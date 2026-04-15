@@ -51,6 +51,7 @@ class RoleReadBase(TimeStampReadModel):
     slug: str
     permissions: list[str]
     user_id: int
+    shop_id: Optional[int]
     is_active: bool
     description: Optional[str]
 
@@ -69,7 +70,6 @@ class RoleCreate(SQLModel):
 
 class RoleUpdate(SQLModel):
     name: Optional[str] = None
-    slug: Optional[str] = None
     description: Optional[str] = None
     permissions: Optional[list[str]] = None
 

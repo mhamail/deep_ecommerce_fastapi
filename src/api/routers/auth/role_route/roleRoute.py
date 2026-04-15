@@ -11,7 +11,7 @@ from src.api.core.dependencies import (
 )
 from src.api.models.role_model.roleModel import Role, RoleCreate, RoleRead, RoleUpdate
 from src.api.models.role_model.userRoleModel import UserRole
-from src.api.core.utility import uniqueSlugify
+from src.api.core.utility import slugify, uniqueSlugify
 
 router = APIRouter(prefix="/role", tags=["Role"])
 
@@ -55,9 +55,9 @@ def update_role(
         if existing_role:
             return api_response(400, "Role name already exists")
 
-    # Generate slug if name is updated but slug is not provided
-    if "name" in role and "slug" not in role:
-        role["slug"] = uniqueSlugify(role["name"])
+    # Generate slug if name is updated
+    if request.name:
+        request.slug = slugify(request.name)
 
     updated_user = updateOp(role, request, session)
 

@@ -25,6 +25,7 @@ from src.api.core.security import (
 )
 from src.api.core.dependencies import (
     GetSession,
+    requireShopPermission,
     requireSignin,
     requireAdmin,
     requirePermission,
@@ -385,5 +386,16 @@ def get_admin_data(
     return api_response(
         200,
         f"Hello Shop Admin {user['email']}",
+        {"user": user},
+    )
+
+
+@router.get("/shop-permissions")
+def get_admin_data(
+    user=requireShopPermission("shop:*"),
+):
+    return api_response(
+        200,
+        f"Hello Shop Member {user['email']}, You have this shop permission",
         {"user": user},
     )

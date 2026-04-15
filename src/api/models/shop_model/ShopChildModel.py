@@ -36,6 +36,7 @@ class ShopUserRead(SQLModel, TimeStampReadModel):
 class ShopUserReadWithUser(ShopUserRead):
     id: int
     user: UserReadShop = None
+    shop_id: int
     is_active: Optional[bool]
 
 

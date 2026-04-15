@@ -7,14 +7,20 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import IntegrityError
 from pydantic import ValidationError
 
+
+from src.api.routers.auth.role_route import (
+    roleRoute,
+    shopRoleRoute,
+    userRoleRoute,
+    shopUserRoleRoute,
+)
 from src.api.routers.shop import shopRoute, shopChildRoute
 from src.api.routers.auth import (
     authRoute,
-    roleRoute,
     userRoute,
     verifymeRoute,
-    userRoleRoute,
 )
+
 from src.api.routers import mediaRoute
 
 
@@ -96,9 +102,13 @@ def root():
 app.include_router(authRoute.router)
 app.include_router(userRoute.router)
 app.include_router(verifymeRoute.router)
-app.include_router(roleRoute.router)
-app.include_router(userRoleRoute.router)
 app.include_router(mediaRoute.router)
+
+# role
+app.include_router(roleRoute.router)
+app.include_router(shopRoleRoute.router)
+app.include_router(userRoleRoute.router)
+app.include_router(shopUserRoleRoute.router)
 # main
 app.include_router(shopRoute.router)
 app.include_router(shopChildRoute.router)
