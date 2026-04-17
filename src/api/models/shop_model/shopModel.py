@@ -59,7 +59,7 @@ class ShopRead(SQLModel, TimeStampReadModel):
     id: Optional[int]
     name: str
     slug: str
-    description: str
+    description: Optional[str] = None
     address: Optional[dict] = None
     cover_image: Optional[MediaRead] = None
     logo: Optional[MediaRead] = None

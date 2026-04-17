@@ -357,7 +357,7 @@ def require_shop_permission(*permissions: str):
         default_shop = user.get("default_shop")
 
         if not default_shop:
-            api_response(403, "No active shop selected")
+            return api_response(403, "No active shop selected")
         default_shop_id = (
             default_shop["id"] if isinstance(default_shop, dict) else default_shop.id
         )
@@ -366,8 +366,8 @@ def require_shop_permission(*permissions: str):
 
         user_permissions = get_user_permissions(user)
 
+        print("==================", roles, default_shop_id)
         # ✅ admin shortcut
-
         for role in roles:
             if role.get("shop_id") != default_shop_id:
                 continue

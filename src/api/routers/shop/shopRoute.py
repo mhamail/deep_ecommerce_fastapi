@@ -15,6 +15,7 @@ from src.api.core.dependencies import (
     ListQueryParams,
     requirePermission,
     requireAdmin,
+    requireShopPermission,
     verifiedUser,
     requireSignin,
 )
@@ -147,7 +148,7 @@ def findOne(
 async def delete_role(
     id: int,
     session: GetSession,
-    # user=requirePermission("shop_delete"),
+    user=requireShopPermission("shop_delete"),
 ):
     shop = session.get(Shop, id)
 
@@ -167,7 +168,7 @@ async def delete_role(
 @router.get("/list", response_model=list[ShopReadWithOwner])
 def list(
     query_params: ListQueryParams,
-    user=requirePermission("shop_list"),
+    user=requireShopPermission(["shop_view"]),
 ):
     query_params = vars(query_params)
     searchFields = ["name", "slug", "description"]
