@@ -15,6 +15,7 @@ from src.api.core.dependencies import (
     ListQueryParams,
     requirePermission,
     requireAdmin,
+    requireDefaultShop,
     requireShopPermission,
     verifiedUser,
     requireSignin,
@@ -111,7 +112,7 @@ async def update_ride(
     )
 
 
-@router.get("/read", response_model=ShopRead)
+@router.get("/read/owner", response_model=ShopRead)
 def findOne(
     session: GetSession,
     user: verifiedUser,
@@ -123,6 +124,23 @@ def findOne(
 
     raiseExceptions((read, 404, "Shop not found"))
     data = ShopRead.model_validate(read)
+
+    return api_response(200, "Shop Found", data)
+
+
+@router.get("/read/default", response_model=ShopReadWithOwner)
+def findOne(
+    session: GetSession,
+    user: requireDefaultShop,
+):
+
+    default_shop = user.get("default_shop")
+    shop_id = default_shop["id"] if isinstance(default_shop, dict) else default_shop.id
+    statement = select(Shop).where(Shop.id == shop_id)
+    read = session.exec(statement).first()  # Like findById
+
+    raiseExceptions((read, 404, "Shop not found"))
+    data = ShopReadWithOwner.model_validate(read)
 
     return api_response(200, "Shop Found", data)
 
@@ -166,10 +184,7 @@ async def delete_role(
 
 
 @router.get("/list", response_model=list[ShopReadWithOwner])
-def list(
-    query_params: ListQueryParams,
-    user=requireShopPermission(["shop_view"]),
-):
+def list(query_params: ListQueryParams):
     query_params = vars(query_params)
     searchFields = ["name", "slug", "description"]
 

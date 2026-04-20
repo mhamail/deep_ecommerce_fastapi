@@ -64,15 +64,13 @@ def initialize_first_user(request: UserCreate, session: GetSession):
     # Create roles
     admin_role = Role(
         name="root",
-        slug="root",
         user_id=user.id,
         permissions=["all", "system:*"],
     )
     shop_admin_role = Role(
         name="Shop Admin",
-        slug="shop_admin",
         user_id=user.id,
-        permissions=["shop_admin", "role"],
+        permissions=["shop:admin", "role"],
     )
 
     session.add(admin_role)
@@ -117,6 +115,7 @@ def register_user(
     token = create_access_token({"id": user.id, "email": user.email})
 
     verify_url = f"{DOMAIN}/verify/verify-email?token={token}"
+
     # Load template
     with open("src/templates/email_verification.html") as f:
         html_template = f.read().replace("{{VERIFY_URL}}", verify_url)

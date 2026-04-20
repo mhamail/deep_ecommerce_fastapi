@@ -59,7 +59,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 def create_access_token(
     user_data: dict,
-    token_version: Optional[int] = int,
+    token_version: Optional[int] = None,
     refresh: Optional[bool] = False,
     expires: Optional[timedelta] = None,
 ):
@@ -73,7 +73,7 @@ def create_access_token(
 
     payload = {
         "user": user_data,
-        "exp": expire,
+        "exp": int(expire.timestamp()),
         "refresh": refresh,
         "token_version": token_version,
     }
@@ -352,12 +352,19 @@ def require_shop_admin(user: dict = Depends(require_signin_user)):
     return user
 
 
+def require_default_shop(user: dict = Depends(require_signin_user)):
+    default_shop = user.get("default_shop")
+
+    if not default_shop:
+        api_response(403, "No active shop selected")
+
+    return user
+
+
 def require_shop_permission(*permissions: str):
-    def checker(user: dict = Depends(require_signin_user)):
+    def checker(user: dict = Depends(require_default_shop)):
         default_shop = user.get("default_shop")
 
-        if not default_shop:
-            return api_response(403, "No active shop selected")
         default_shop_id = (
             default_shop["id"] if isinstance(default_shop, dict) else default_shop.id
         )

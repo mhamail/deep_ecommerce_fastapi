@@ -19,6 +19,8 @@ from src.api.models.role_model.roleModel import (
     RoleRead,
     RoleUpdate,
     RoleUpdate,
+    ShopRoleCreate,
+    ShopRoleUpdate,
 )
 from src.api.models.role_model.userRoleModel import UserRole
 
@@ -28,7 +30,7 @@ router = APIRouter(prefix="/role", tags=["Shop Role"])
 
 @router.post("/create-shop")
 def create_role(
-    request: RoleCreate,
+    request: ShopRoleCreate,
     session: GetSession,
     user=requireShopPermission(["shop:*"]),
 ):
@@ -54,7 +56,7 @@ def create_role(
 @router.put("/update-shop/{id}")
 def update_role(
     id: int,
-    request: RoleUpdate,
+    request: ShopRoleUpdate,
     session: GetSession,
     user=requireShopPermission(["shop:*"]),
 ):

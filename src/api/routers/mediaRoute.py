@@ -109,7 +109,7 @@ async def get_image(filename: str):
 @router.delete("/delete-by-ids")
 async def delete_by_ids(
     session: GetSession,
-    user: requireAdmin,
+    # user: requireAdmin,
     ids: List[int] = Query(
         ..., description="IDs of media to delete"
     ),  # e.g. /media/delete-by-ids?ids=1&ids=2&ids=3

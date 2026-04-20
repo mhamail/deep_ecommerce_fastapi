@@ -22,7 +22,7 @@ from src.api.models.shop_model.ShopChildModel import (
 )
 from src.api.models.userModel import User
 
-router = APIRouter(prefix="/shop-users", tags=["Shop Users"])
+router = APIRouter(prefix="/shop-users", tags=["Shop Users for Owner"])
 
 
 @router.post("/create", response_model=ShopUserRead)

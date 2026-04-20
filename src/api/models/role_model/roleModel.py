@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING, List, Optional
 
 from pydantic import field_validator
 from sqlalchemy import JSON
-from sqlmodel import Field, Relationship, SQLModel
+from sqlmodel import Field, Index, Relationship, SQLModel, UniqueConstraint, text
 from enum import Enum
 
 from src.api.models.baseModel import TimeStampReadModel, TimeStampedModel
@@ -14,8 +14,8 @@ if TYPE_CHECKING:
 class Role(TimeStampedModel, table=True):
     __tablename__ = "roles"
     id: Optional[int] = Field(default=None, primary_key=True)
-    name: str = Field(max_length=50, unique=True)
-    slug: str = Field(max_length=60, unique=True, index=True)
+    name: str = Field(max_length=50)
+
     description: Optional[str] = None
     permissions: list[str] = Field(
         default_factory=list,
@@ -28,13 +28,30 @@ class Role(TimeStampedModel, table=True):
     # relationships
     user_roles: list["UserRole"] = Relationship(back_populates="role")
 
+    __table_args__ = (
+        # ✅ Unique per shop
+        UniqueConstraint("name", "shop_id", name="uq_role_name_shop"),
+        # ✅ Global unique when shop_id IS NULL
+        Index(
+            "uq_role_name_global",
+            "name",
+            unique=True,
+            postgresql_where=text("shop_id IS NULL"),
+        ),
+    )
+
     @property
     def roles(self):
         """Return roles directly (not UserRole objects)."""
         return [ur.role for ur in self.user_roles if ur.role]
 
 
-class PermissionEnum(str, Enum):
+class SitePermissionEnum(str, Enum):
+    ROLE_CREATE = "role:create"
+    ROLE_DELETE = "role:delete"
+
+
+class ShopPermissionEnum(str, Enum):
     PRODUCT_CREATE = "product:create"
     PRODUCT_UPDATE = "product:update"
     PRODUCT_DELETE = "product:delete"
@@ -76,10 +93,16 @@ class RoleUpdate(SQLModel):
 
 class ShopRoleCreate(SQLModel):
     name: str
-    permissions: List[PermissionEnum]
+    permissions: List[ShopPermissionEnum]
 
     @field_validator("permissions")
     def validate_permissions(cls, v):
         if not v:
             raise ValueError("At least one permission required")
         return list(set(v))
+
+
+class ShopRoleUpdate(SQLModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    permissions: Optional[List[ShopPermissionEnum]] = None

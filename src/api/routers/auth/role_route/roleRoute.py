@@ -20,7 +20,7 @@ router = APIRouter(prefix="/role", tags=["Role"])
 def create_role(
     request: RoleCreate,
     session: GetSession,
-    user=requirePermission(["role_create"]),
+    user=requirePermission(["role:create"]),
 ):
     # Generate slug
     slug = uniqueSlugify(session, Role, request.name)
@@ -42,7 +42,7 @@ def update_role(
     id: int,
     request: RoleUpdate,
     session: GetSession,
-    user=requirePermission(["role_create"]),
+    user=requirePermission(["role:create"]),
 ):
     role = session.get(Role, id)
     raiseExceptions((role, 404, "Role not found"))
@@ -77,7 +77,7 @@ def get_role(id: int, session: GetSession, user=requirePermission(["role_view"])
 def delete_role(
     id: int,
     session: GetSession,
-    user=requirePermission("role_delete"),
+    user=requirePermission("role:delete"),
 ):
     role = session.get(Role, id)
     raiseExceptions((role, 404, "Role not found"))

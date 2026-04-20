@@ -106,8 +106,8 @@ app.include_router(mediaRoute.router)
 
 # role
 app.include_router(roleRoute.router)
-app.include_router(shopRoleRoute.router)
 app.include_router(userRoleRoute.router)
+app.include_router(shopRoleRoute.router)
 app.include_router(shopUserRoleRoute.router)
 # main
 app.include_router(shopRoute.router)
