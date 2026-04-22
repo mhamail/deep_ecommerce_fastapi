@@ -28,21 +28,34 @@ from src.api.models.role_model.userRoleModel import UserRole
 router = APIRouter(prefix="/role", tags=["Shop Role"])
 
 
-@router.post("/create-shop")
+@router.post(
+    "/create-shop",
+    summary="Create Shop Role",
+    description="""
+Create a new role for a shop.
+
+### Available Permissions:
+- product:create → Create new products
+- product:update → Update products
+- product:delete → Delete products
+- order:view → View orders
+- order:update → Update orders
+- user:manage → Manage users
+""",
+)
 def create_role(
     request: ShopRoleCreate,
     session: GetSession,
     user=requireShopPermission(["shop:*"]),
 ):
     # Generate slug
-    slug = uniqueSlugify(session, Role, request.name)
 
     role_data = request.model_dump()
-    role_data["slug"] = slug
+
     print(f"role_data: {user}")
     role_data["user_id"] = user["id"]  # Current user creating the role
 
-    current_shop = user.get("shop")
+    current_shop = user.get("default_shop")
 
     role_data["shop_id"] = current_shop.id
 
@@ -72,10 +85,6 @@ def update_role(
         ).first()
         if existing_role:
             return api_response(400, "Role name already exists")
-
-    # Generate slug if name is updated
-    if request.name:
-        request.slug = slugify(request.name)
 
     updated_user = updateOp(role, request, session)
 

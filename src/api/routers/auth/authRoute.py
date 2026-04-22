@@ -70,7 +70,7 @@ def initialize_first_user(request: UserCreate, session: GetSession):
     shop_admin_role = Role(
         name="Shop Admin",
         user_id=user.id,
-        permissions=["shop:admin", "role"],
+        permissions=["shop:*"],
     )
 
     session.add(admin_role)

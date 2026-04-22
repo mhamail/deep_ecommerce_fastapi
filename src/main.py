@@ -1,9 +1,10 @@
 # Initialize the FastAPI app with the custom lifespan
 from fastapi import FastAPI, Request
+from fastapi.openapi.docs import get_swagger_ui_html
 
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy.exc import IntegrityError
 from pydantic import ValidationError
 
@@ -38,7 +39,11 @@ async def lifespan(app: FastAPI):
     yield  # 👈 after this, FastAPI starts handling requests
 
 
-app = FastAPI(lifespan=lifespan, root_path="/api")
+app = FastAPI(
+    lifespan=lifespan,
+    root_path="/api",
+    docs_url=None,
+)
 # Allow all origins
 app.add_middleware(
     CORSMiddleware,
@@ -96,6 +101,32 @@ async def generic_exception_handler(request: Request, exc: Exception):
 @app.get("/")
 def root():
     return {"message": "Hello, FastAPI with uv!"}
+
+
+@app.get("/docs", include_in_schema=False)
+async def custom_docs():
+    html = get_swagger_ui_html(openapi_url=app.openapi_url, title="Dark API Docs")
+
+    # Inject dark CSS manually
+    dark_css = """
+    <style>
+        body {
+            background-color: #121212;
+            color: #ffffff;
+        }
+        .swagger-ui {
+            filter: invert(1) hue-rotate(270deg);
+        }
+        .swagger-ui img {
+            filter: invert(1) hue-rotate(270deg);
+        }
+        
+    </style>
+    """
+
+    return HTMLResponse(
+        html.body.decode("utf-8").replace("</head>", dark_css + "</head>")
+    )
 
 
 # auth

@@ -36,7 +36,7 @@ async def create_product(
 
     request.slug = uniqueSlugify(session, Product, request.name)
 
-    request.owner_id = user_id
+    request.created_by = user_id
 
     data = serialize_obj(request)
     await uploadMediaFiles(session, data, request)

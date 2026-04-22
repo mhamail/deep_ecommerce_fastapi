@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import json
 from typing import Dict, List, Optional
 from passlib.context import CryptContext
 from jose import JWTError, jwt
@@ -340,6 +341,8 @@ def require_shop_admin(user: dict = Depends(require_signin_user)):
     roles = user.get("roles", [])
 
     user_permissions = get_user_permissions(user)
+
+    print("==================", roles, user_permissions)
 
     is_admin = any(
         "shop:*" in user_permissions and r.get("shop_id") == default_shop_id
