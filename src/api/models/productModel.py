@@ -105,7 +105,7 @@ class ProductForm:
         is_featured: Optional[bool] = Form(False),
         # Media
         thumbnail: Optional[Union[UploadFile, str]] = File(None),
-        images: Optional[List[UploadFile]] = File(None),
+        images: List[UploadFile] = File(None),
         # JSON fields
         attributes: Optional[str] = Form(None),
         tags: Optional[str] = Form(None),
