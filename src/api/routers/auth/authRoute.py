@@ -391,7 +391,7 @@ def get_admin_data(
 
 @router.get("/shop-permissions")
 def get_admin_data(
-    user=requireShopPermission("shop:*"),
+    user=requireShopPermission("product:create"),
 ):
     return api_response(
         200,

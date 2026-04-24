@@ -22,7 +22,7 @@ from src.api.routers.auth import (
     verifymeRoute,
 )
 
-from src.api.routers import mediaRoute
+from src.api.routers import mediaRoute, productRoute
 
 
 @asynccontextmanager
@@ -143,3 +143,4 @@ app.include_router(shopUserRoleRoute.router)
 # main
 app.include_router(shopRoute.router)
 app.include_router(shopChildRoute.router)
+app.include_router(productRoute.router)

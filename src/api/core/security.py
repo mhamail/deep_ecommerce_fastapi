@@ -224,6 +224,7 @@ def require_signin_user(
         "roles": db_user.roles,
         "shop": db_user.shop,
         "shops_member": db_user.shop_memberships,
+        "default_shop_id": db_user.default_shop_id,
         "default_shop": db_user.default_shop,
         "is_root": db_user.is_root,
     }

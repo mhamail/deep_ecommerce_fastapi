@@ -65,7 +65,6 @@ class ShopPermissionEnum(str, Enum):
 class RoleReadBase(TimeStampReadModel):
     id: int
     name: str
-    slug: str
     permissions: list[str]
     user_id: int
     shop_id: Optional[int]
@@ -77,6 +76,9 @@ class RoleRead(SQLModel, RoleReadBase):
     """Full role info returned in UserRead"""
 
     pass
+
+    class Config:
+        from_attributes = True
 
 
 class RoleCreate(SQLModel):
