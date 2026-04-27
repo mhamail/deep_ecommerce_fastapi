@@ -55,10 +55,6 @@ def update_role(
         if existing_role:
             return api_response(400, "Role name already exists")
 
-    # Generate slug if name is updated
-    if request.name:
-        request.slug = slugify(request.name)
-
     updated_user = updateOp(role, request, session)
 
     session.commit()

@@ -58,6 +58,11 @@ class Product(TimeStampedModel, table=True):
     creator: "User" = Relationship(back_populates="created_products")
 
 
+class ShopRead(SQLModel):
+    id: int
+    name: str
+
+
 class ProductRead(SQLModel, TimeStampReadModel):
     id: int
     # Basic
@@ -76,7 +81,7 @@ class ProductRead(SQLModel, TimeStampReadModel):
 
     # Media
     thumbnail: Optional[MediaRead] = None
-    images: Optional[List[Optional[MediaRead]]] = []
+    # images: Optional[List[Optional[MediaRead]]] = None
 
     # Attributes
     attributes: Optional[List[dict]] = []
@@ -89,6 +94,9 @@ class ProductRead(SQLModel, TimeStampReadModel):
     # Status
     is_active: bool
     is_featured: bool
+
+    # Relations
+    shop: ShopRead
 
 
 class ProductForm:
@@ -105,7 +113,8 @@ class ProductForm:
         is_featured: Optional[bool] = Form(False),
         # Media
         thumbnail: Optional[Union[UploadFile, str]] = File(None),
-        images: List[UploadFile] = File(None),
+        # images: Optional[List[UploadFile]] = File(None),
+        delete_images: Optional[List[str]] = Form(None),
         # JSON fields
         attributes: Optional[str] = Form(None),
         tags: Optional[str] = Form(None),
@@ -132,7 +141,8 @@ class ProductForm:
 
         # Media
         self.thumbnail = thumbnail
-        self.images = images or []
+        # self.images = images or []
+        self.delete_images = clean(delete_images)
 
         # JSON
         self.attributes = clean_json(attributes) or []

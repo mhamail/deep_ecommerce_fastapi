@@ -310,3 +310,38 @@ async def deleteMediaFiles(
         return delete_media_items(session, filenames=filenames_to_delete)
 
     return {"deleted": [], "message": "No files to delete"}
+
+
+async def arrangeUpdateMultiMedia(session, existing_files, files, delete_files):
+    existing_files = existing_files or []
+
+    # ==========================
+    # DELETE
+    # ==========================
+    if delete_files:
+        existing_files = [
+            img
+            for img in existing_files
+            if isinstance(img, dict) and img.get("filename") not in delete_files
+        ]
+
+        await deleteMediaFiles(session, filenames=delete_files)
+
+    # ==========================
+    # UPLOAD NEW
+    # ==========================
+    new_files = [f for f in (files or []) if isinstance(f, UploadFile)]
+
+    new_uploaded_images = []
+    if new_files:
+        records = await uploadMultiMedia(new_files, session)
+
+        new_uploaded_images = [
+            r.model_dump(include={"id", "filename", "original", "media_type"})
+            for r in records
+        ]
+
+    # ==========================
+    # MERGE
+    # ==========================
+    return existing_files + new_uploaded_images
