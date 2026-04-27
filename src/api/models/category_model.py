@@ -106,3 +106,45 @@ class Category(TimeStampedModel, table=True):
 
     # Products under this category
     products: List["Product"] = Relationship(back_populates="category")
+
+
+class CategoryBase(BaseModel):
+    name: str = Field(..., max_length=191)
+    slug: str = Field(..., max_length=191)
+
+    level: Optional[int] = 1
+
+    icon: Optional[str] = None
+    image: Optional[Dict[str, Any]] = None
+    details: Optional[str] = None
+
+    parent_id: Optional[int] = None
+    root_id: Optional[int] = None
+
+    admin_commission_rate: Optional[float] = None
+    is_active: Optional[bool] = True
+
+
+class CategoryRead(CategoryBase):
+    id: int
+
+    class Config:
+        from_attributes = True
+
+
+class CategoryTreeRead(CategoryRead):
+    children: List["CategoryTreeRead"] = []
+
+
+class CategoryForm(BaseModel):
+    def __init__(
+        self,
+        name: str = Form(..., max_length=191),
+        slug: str = Form(..., max_length=191),
+        level: Optional[int] = Form(1),
+        icon: Optional[str] = Form(None),
+        image: Optional[Dict[str, Any]] = Form(None),
+        details: Optional[str] = Form(None),
+        parent_id: Optional[int] = Form(None),
+    ):
+        super().__init__()
