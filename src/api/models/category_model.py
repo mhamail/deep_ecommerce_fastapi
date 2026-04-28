@@ -133,6 +133,19 @@ class CategoryRead(SQLModel, CategoryBase):
         from_attributes = True
 
 
+class ProductRead(SQLModel):
+    id: int
+    name: str
+
+
+class CategoryProductRead(SQLModel, CategoryBase):
+    id: int
+    products: List["ProductRead"] = []
+
+    class Config:
+        from_attributes = True
+
+
 class CategoryTreeRead(CategoryRead):
     children: List["CategoryTreeRead"] = []
 
