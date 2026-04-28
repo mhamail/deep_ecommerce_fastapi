@@ -1,6 +1,4 @@
-from typing import Annotated, List
-
-from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi import APIRouter, Depends, UploadFile
 from sqlmodel import select
 from src.api.core.utility import uniqueSlugify
 from src.api.core.operation import listRecords, serialize_obj, updateOp
@@ -8,10 +6,7 @@ from src.api.core.response import api_response, raiseExceptions
 from src.api.core.dependencies import (
     GetSession,
     ListQueryParams,
-    requirePermission,
-    requireAdmin,
     requireShopPermission,
-    verifiedUser,
 )
 from src.api.models.productModel import (
     Product,
@@ -24,7 +19,6 @@ from src.api.core.operation.media import (
     arrangeUpdateMultiMedia,
     deleteMediaFiles,
     uploadMediaFiles,
-    uploadMultiMedia,
     uploadSingleMedia,
 )
 

@@ -2,10 +2,11 @@ import json
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 from fastapi import File, Form, UploadFile
-from pydantic import BaseModel, EmailStr, model_validator
+from pydantic import BaseModel
 from sqlalchemy import JSON, Column, Enum
-from sqlmodel import Field, Index, Relationship, SQLModel, text
+from sqlmodel import Field, Relationship, SQLModel
 
+from src.api.models.utils import clean, to_bool, to_float, to_int
 from src.api.models.baseModel import TimeStampReadModel, TimeStampedModel
 
 if TYPE_CHECKING:
@@ -108,14 +109,14 @@ class Category(TimeStampedModel, table=True):
     products: List["Product"] = Relationship(back_populates="category")
 
 
-class CategoryBase(BaseModel):
+class CategoryBase(TimeStampReadModel):
     name: str = Field(..., max_length=191)
     slug: str = Field(..., max_length=191)
 
     level: Optional[int] = 1
 
     icon: Optional[str] = None
-    image: Optional[Dict[str, Any]] = None
+    image: Optional[Union[UploadFile, str]] = (File(None),)
     details: Optional[str] = None
 
     parent_id: Optional[int] = None
@@ -125,7 +126,7 @@ class CategoryBase(BaseModel):
     is_active: Optional[bool] = True
 
 
-class CategoryRead(CategoryBase):
+class CategoryRead(SQLModel, CategoryBase):
     id: int
 
     class Config:
@@ -136,15 +137,49 @@ class CategoryTreeRead(CategoryRead):
     children: List["CategoryTreeRead"] = []
 
 
-class CategoryForm(BaseModel):
+class CategoryForm:
     def __init__(
         self,
-        name: str = Form(..., max_length=191),
-        slug: str = Form(..., max_length=191),
-        level: Optional[int] = Form(1),
-        icon: Optional[str] = Form(None),
-        image: Optional[Dict[str, Any]] = Form(None),
+        # ==========================
+        # Basic Info
+        # ==========================
+        name: Optional[str] = Form(None),
         details: Optional[str] = Form(None),
+        # ==========================
+        # Hierarchy
+        # ==========================
         parent_id: Optional[int] = Form(None),
+        # ==========================
+        # Media
+        # ==========================
+        icon: Optional[str] = Form(None),
+        image: Optional[Union[UploadFile, str]] = File(None),
+        # ==========================
+        # Business
+        # ==========================
+        admin_commission_rate: Optional[float] = Form(None),
+        is_active: Optional[bool] = Form(True),
     ):
-        super().__init__()
+        # ==========================
+        # Assign values
+        # ==========================
+        self.name = clean(name)
+
+        self.details = clean(details)
+
+        # ==========================
+        # Hierarchy logic
+        # ==========================
+        self.parent_id = to_int(parent_id)
+
+        # ==========================
+        # Media
+        # ==========================
+        self.icon = clean(icon)
+        self.image = image  # UploadFile or string (URL)
+
+        # ==========================
+        # Business
+        # ==========================
+        self.admin_commission_rate = to_float(admin_commission_rate)
+        self.is_active = to_bool(is_active) if is_active is not None else True

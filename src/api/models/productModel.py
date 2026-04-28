@@ -8,7 +8,7 @@ from src.api.models.utils import clean, clean_json, to_bool, to_float, to_int
 from src.api.models.baseModel import TimeStampReadModel, TimeStampedModel
 
 if TYPE_CHECKING:
-    from src.api.models import Shop, User
+    from src.api.models import Shop, User, Category
 
 
 class Product(TimeStampedModel, table=True):
@@ -19,6 +19,7 @@ class Product(TimeStampedModel, table=True):
     # Relations
     shop_id: int = Field(foreign_key="shops.id", index=True)
     created_by: Optional[int] = Field(default=None, foreign_key="users.id")
+    category_id: int = Field(foreign_key="categories.id", index=True)
 
     # Basic Info
     name: str = Field(max_length=191, index=True)
@@ -56,6 +57,7 @@ class Product(TimeStampedModel, table=True):
     # Relationships
     shop: "Shop" = Relationship(back_populates="products")
     creator: "User" = Relationship(back_populates="created_products")
+    category: "Category" = Relationship(back_populates="products")
 
 
 class ShopRead(SQLModel):
