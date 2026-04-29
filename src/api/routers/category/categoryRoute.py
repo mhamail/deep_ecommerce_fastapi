@@ -1,11 +1,13 @@
-from typing import Optional
-
-from fastapi import APIRouter, Depends, UploadFile
-from sqlmodel import exists, select
+from fastapi import APIRouter, Depends
+from sqlmodel import delete, exists, select
+from src.api.routers.category.fn import (
+    build_category_tree,
+    calculate_category_level,
+)
 from src.api.models.productModel import Product
 from src.api.core.operation.media import uploadMediaFiles
 from src.api.core.utility import uniqueSlugify
-from src.api.core.operation import listRecords, serialize_obj, updateOp
+from src.api.core.operation import listRecords, serialize_obj
 from src.api.core.response import api_response, raiseExceptions
 from src.api.core.dependencies import (
     GetSession,
@@ -21,48 +23,6 @@ from src.api.models.category_model import (
 )
 
 router = APIRouter(prefix="/category", tags=["Category"])
-
-
-def calculate_category_level(session, parent_id: Optional[int]) -> int:
-    if not parent_id:
-        return 1  # root level
-
-    parent = session.get(Category, parent_id)
-    if not parent:
-        return api_response(400, "Parent category not found")
-
-    if parent.level >= 3:
-        return api_response(400, "Cannot create a category deeper than 3 levels")
-
-    return parent.level + 1
-
-
-def build_category_tree(categories):
-    """
-    Convert flat category list into nested tree:
-    Level 1 -> Level 2 -> Level 3
-    """
-
-    category_map = {}
-    tree = []
-
-    # Step 1: Convert to dict + prepare children list
-    for cat in categories:
-        item = cat.model_dump() if hasattr(cat, "model_dump") else dict(cat)
-        item["children"] = []
-        category_map[item["id"]] = item
-
-    # Step 2: Build hierarchy
-    for cat_id, cat in category_map.items():
-        parent_id = cat.get("parent_id")
-
-        if parent_id and parent_id in category_map:
-            category_map[parent_id]["children"].append(cat)
-        else:
-            # No parent → Level 1
-            tree.append(cat)
-
-    return tree
 
 
 @router.post("/create")
@@ -209,7 +169,9 @@ def delete_category(
     # ==========================
     # Check children
     # ==========================
-    has_children = session.exec(Category).filter(Category.parent_id == id).first()
+    has_children = session.exec(
+        select(Category).where(Category.parent_id == id)
+    ).first()
 
     if has_children:
         return api_response(
@@ -232,6 +194,41 @@ def delete_category(
     session.commit()
 
     return api_response(200, "Category deleted successfully")
+
+
+@router.delete("/delete-parent/{id}")
+def deleteMany(
+    id: int,
+    session: GetSession,
+    user=requirePermission("system:*"),
+):
+    category = session.get(Category, id)
+    raiseExceptions((category, 404, "category not found"))
+
+    # ==========================
+    # Get all category IDs in tree
+    # ==========================
+    category_ids = session.exec(
+        select(Category.id).where((Category.id == id) | (Category.root_id == id))
+    ).all()
+
+    # ==========================
+    # Check products
+    # ==========================
+    has_products = session.exec(
+        select(exists().where(Product.category_id.in_(category_ids)))
+    ).one()
+
+    if has_products:
+        return api_response(400, "Cannot delete: categories in this tree have products")
+
+    # ==========================
+    # Delete in ONE query
+    # ==========================
+    session.exec(delete(Category).where(Category.id.in_(category_ids)))
+    session.commit()
+
+    return api_response(200, f"Category tree '{category.name}' deleted successfully")
 
 
 @router.get(

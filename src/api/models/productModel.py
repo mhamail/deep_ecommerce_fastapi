@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING, Optional, List, Union
 from fastapi import File, Form, UploadFile
+from pydantic import BaseModel
 from sqlmodel import JSON, SQLModel, Field, Relationship, Column
 
 
@@ -65,6 +66,11 @@ class ShopRead(SQLModel):
     name: str
 
 
+class CategoryRead(SQLModel):
+    id: int
+    name: str
+
+
 class ProductRead(SQLModel, TimeStampReadModel):
     id: int
     # Basic
@@ -99,6 +105,7 @@ class ProductRead(SQLModel, TimeStampReadModel):
 
     # Relations
     shop: ShopRead
+    category: CategoryRead
 
 
 class ProductForm:
@@ -123,6 +130,8 @@ class ProductForm:
         # SEO
         meta_title: Optional[str] = Form(None),
         meta_description: Optional[str] = Form(None),
+        # relations
+        category_id: Optional[int] = Form(None),
     ):
 
         # ==========================
@@ -153,3 +162,5 @@ class ProductForm:
         # SEO
         self.meta_title = clean(meta_title)
         self.meta_description = clean(meta_description)
+        # relations
+        self.category_id = category_id
