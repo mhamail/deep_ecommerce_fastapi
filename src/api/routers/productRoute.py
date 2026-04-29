@@ -1,5 +1,7 @@
 from fastapi import APIRouter, Depends, UploadFile
-from sqlmodel import select
+from sqlmodel import exists, select
+from src.api.routers.category.fn import get_category_subtree_ids
+from src.api.models.category_model import Category
 from src.api.core.utility import uniqueSlugify
 from src.api.core.operation import listRecords, serialize_obj, updateOp
 from src.api.core.response import api_response, raiseExceptions
@@ -35,15 +37,34 @@ async def create_product(
     user_id = user.get("id")
     shop_id = user.get("default_shop_id")
 
-    request.slug = uniqueSlugify(session, Product, request.name)
+    # ==========================
+    # Validate category (must be leaf)
+    # ==========================
+    if request.category_id:
+        has_children = session.exec(
+            select(exists().where(Category.parent_id == request.category_id))
+        ).one()
 
+        if has_children:
+            return api_response(
+                400,
+                "Please select a sub-category (last level). Parent categories are not allowed.",
+            )
+
+    # ==========================
+    # Prepare data
+    # ==========================
+    request.slug = uniqueSlugify(session, Product, request.name)
     request.created_by = user_id
     request.shop_id = shop_id
 
     data = serialize_obj(request)
+
     await uploadMediaFiles(session, data, request)
 
-    # ✅ Create product
+    # ==========================
+    # Create product
+    # ==========================
     product = Product(**data)
 
     session.add(product)
@@ -128,4 +149,23 @@ def list(
         searchFields=searchFields,
         Model=Product,
         Schema=ProductRead,
+    )
+
+
+@router.get("/related-category/{category_id}")
+def list(query_params: ListQueryParams, category_id: int, session: GetSession):
+    query_params = vars(query_params)
+    searchFields = ["name", "description", "slug", "sku"]
+
+    category_ids = get_category_subtree_ids(session, category_id)
+
+    def otherFilters(statement, Model):
+        return statement.where(Model.category_id.in_(category_ids))
+
+    return listRecords(
+        query_params=query_params,
+        searchFields=searchFields,
+        Model=Product,
+        Schema=ProductRead,
+        otherFilters=otherFilters,
     )

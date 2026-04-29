@@ -69,6 +69,7 @@ class ShopRead(SQLModel):
 class CategoryRead(SQLModel):
     id: int
     name: str
+    root_id: int
 
 
 class ProductRead(SQLModel, TimeStampReadModel):

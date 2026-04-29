@@ -48,30 +48,14 @@ def build_category_tree(categories):
     return tree
 
 
-def collect_category_ids(session, category_id: int, ids: list):
-    ids.append(category_id)
+def get_category_subtree_ids(session, category_id: int):
+    ids = [category_id]
 
     children = session.exec(
         select(Category.id).where(Category.parent_id == category_id)
     ).all()
 
     for child_id in children:
-        collect_category_ids(session, child_id, ids)
+        ids.extend(get_category_subtree_ids(session, child_id))
 
-
-def delete_category_tree(session, category_id: int):
-    """
-    Recursively delete a category and all its children (safe from circular dependency).
-    """
-
-    # Get children IDs only (lightweight)
-    children = session.exec(
-        select(Category.id).where(Category.parent_id == category_id)
-    ).all()
-
-    # Delete children first
-    for child_id in children:
-        delete_category_tree(session, child_id)
-
-    # Delete current node using SQL (NOT ORM)
-    session.exec(delete(Category).where(Category.id == category_id))
+    return ids
