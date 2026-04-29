@@ -4,7 +4,7 @@ from src.api.routers.category.fn import (
     build_category_tree,
     calculate_category_level,
 )
-from src.api.models.productModel import Product
+from src.api.models.product_model.productModel import Product
 from src.api.core.operation.media import uploadMediaFiles
 from src.api.core.utility import uniqueSlugify
 from src.api.core.operation import listRecords, serialize_obj

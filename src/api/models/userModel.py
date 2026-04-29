@@ -11,13 +11,13 @@ from src.api.models.baseModel import TimeStampReadModel, TimeStampedModel
 from pydantic import computed_field
 
 if TYPE_CHECKING:
-    from src.api.models.productModel import Product
+    from api.models.product_model.productModel import Product
     from src.api.models.shop_model.ShopChildModel import ShopUser
     from src.api.models.role_model.userRoleModel import UserRole
 
     from src.api.models.role_model.roleModel import Role
 
-    from api.models.shop_model.shopModel import Shop
+    from src.api.models.shop_model.shopModel import Shop
 
 
 class UserPhone(SQLModel):

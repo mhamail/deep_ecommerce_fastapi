@@ -10,7 +10,7 @@ from src.api.core.dependencies import (
     ListQueryParams,
     requireShopPermission,
 )
-from src.api.models.productModel import (
+from src.api.models.product_model.productModel import (
     Product,
     ProductForm,
     ProductRead,

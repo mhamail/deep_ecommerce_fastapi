@@ -9,7 +9,7 @@ from src.api.models.utils import clean, clean_json, to_bool, to_float, to_int
 from src.api.models.baseModel import TimeStampReadModel, TimeStampedModel
 
 if TYPE_CHECKING:
-    from src.api.models import Shop, User, Category
+    from src.api.models import Shop, User, Category, ProductVariant
 
 
 class Product(TimeStampedModel, table=True):
@@ -59,6 +59,7 @@ class Product(TimeStampedModel, table=True):
     shop: "Shop" = Relationship(back_populates="products")
     creator: "User" = Relationship(back_populates="created_products")
     category: "Category" = Relationship(back_populates="products")
+    variants: List["ProductVariant"] = Relationship(back_populates="product")
 
 
 class ShopRead(SQLModel):
