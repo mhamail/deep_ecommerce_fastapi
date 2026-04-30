@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from pydantic import ValidationError
 
 
+from src.api.routers.product import productRoute
 from src.api.routers.category import categoryRoute
 from src.api.routers.auth.role_route import (
     roleRoute,
@@ -23,7 +24,7 @@ from src.api.routers.auth import (
     verifymeRoute,
 )
 
-from src.api.routers import mediaRoute, productRoute
+from src.api.routers import mediaRoute
 
 
 @asynccontextmanager

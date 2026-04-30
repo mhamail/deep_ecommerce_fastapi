@@ -41,6 +41,31 @@ class ProductVariant(TimeStampedModel, table=True):
     product: "Product" = Relationship(back_populates="variants")
 
 
+class ProductVariantRead(SQLModel, TimeStampReadModel):
+    id: int
+
+    product_id: int
+
+    # Variant Identity
+    sku: Optional[str] = Field(default=None, index=True)
+
+    # Pricing (override product)
+    price: Optional[float] = None
+    discount_price: Optional[float] = None
+
+    # Inventory
+    sku: Optional[str] = None
+    stock: int
+    is_in_stock: bool
+
+    # Attributes
+    attributes: Optional[List[dict]] = []
+    # Example: {"color": "Red", "size": "M"}
+
+    # Media
+    image: Optional[MediaRead] = None
+
+
 class ProductVariantForm:
     def __init__(
         self,
