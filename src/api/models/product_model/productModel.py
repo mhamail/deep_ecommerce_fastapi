@@ -1,9 +1,9 @@
 from typing import TYPE_CHECKING, Optional, List, Union
 from fastapi import File, Form, UploadFile
-from pydantic import BaseModel
 from sqlmodel import JSON, SQLModel, Field, Relationship, Column
 
 
+from src.api.models.product_model.ProductVariantModel import ProductVariantRead
 from src.api.models.mediaModel import MediaRead
 from src.api.models.utils import clean, clean_json, to_bool, to_float, to_int
 from src.api.models.baseModel import TimeStampReadModel, TimeStampedModel
@@ -73,7 +73,7 @@ class CategoryRead(SQLModel):
     root_id: int
 
 
-class ProductRead(SQLModel, TimeStampReadModel):
+class ProductBase(SQLModel):
     id: int
     # Basic
     name: str
@@ -108,6 +108,18 @@ class ProductRead(SQLModel, TimeStampReadModel):
     # Relations
     shop: ShopRead
     category: CategoryRead
+
+
+class ProductVariantBase(SQLModel):
+    id: int
+
+
+class ProductRead(ProductBase, TimeStampReadModel):
+    variants: Optional[List[ProductVariantBase]] = None
+
+
+class ProductSingleRead(ProductBase, TimeStampReadModel):
+    variants: Optional[List[ProductVariantRead]] = None
 
 
 class ProductForm:

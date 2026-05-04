@@ -59,7 +59,7 @@ class ProductVariantRead(SQLModel, TimeStampReadModel):
     is_in_stock: bool
 
     # Attributes
-    attributes: Optional[List[dict]] = []
+    attributes: Optional[dict] = []
     # Example: {"color": "Red", "size": "M"}
 
     # Media
@@ -69,10 +69,6 @@ class ProductVariantRead(SQLModel, TimeStampReadModel):
 class ProductVariantForm:
     def __init__(
         self,
-        # -------------------------
-        # Relations
-        # -------------------------
-        product_id: Optional[int] = Form(None),
         # -------------------------
         # Variant Identity
         # -------------------------
@@ -104,8 +100,6 @@ class ProductVariantForm:
         # ==========================
         # Assign values
         # ==========================
-        self.product_id = to_int(product_id)
-
         self.sku = clean(sku)
 
         self.price = to_float(price)

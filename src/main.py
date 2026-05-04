@@ -9,7 +9,8 @@ from sqlalchemy.exc import IntegrityError
 from pydantic import ValidationError
 
 
-from src.api.routers.product import productRoute
+from src.api.routers.product import productRoute, productVariantRoute
+from src.api.routers.order import OrderRoute
 from src.api.routers.category import categoryRoute
 from src.api.routers.auth.role_route import (
     roleRoute,
@@ -136,7 +137,6 @@ app.include_router(authRoute.router)
 app.include_router(userRoute.router)
 app.include_router(verifymeRoute.router)
 app.include_router(mediaRoute.router)
-
 # role
 app.include_router(roleRoute.router)
 app.include_router(userRoleRoute.router)
@@ -145,5 +145,7 @@ app.include_router(shopUserRoleRoute.router)
 # main
 app.include_router(shopRoute.router)
 app.include_router(shopChildRoute.router)
-app.include_router(productRoute.router)
 app.include_router(categoryRoute.router)
+app.include_router(productRoute.router)
+app.include_router(productVariantRoute.router)
+app.include_router(OrderRoute.router)

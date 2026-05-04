@@ -5,9 +5,17 @@ from src.api.models.mediaModel import Media
 from src.api.models.role_model.roleModel import Role
 from src.api.models.role_model.userRoleModel import UserRole
 
-# main
+# MAIN
+from src.api.models.category_model import Category
+
+# shop
 from src.api.models.shop_model.shopModel import Shop
 from src.api.models.shop_model.ShopChildModel import ShopUser
-from src.api.models.category_model import Category
+
+# product
 from src.api.models.product_model.productModel import Product
-from src.api.models.product_model.ProductVariant import ProductVariant
+from src.api.models.product_model.ProductVariantModel import ProductVariant
+
+# order
+from src.api.models.order_model.orderModel import Order
+from src.api.models.order_model.orderItemModel import OrderItem

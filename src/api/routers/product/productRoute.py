@@ -14,6 +14,7 @@ from src.api.models.product_model.productModel import (
     Product,
     ProductForm,
     ProductRead,
+    ProductSingleRead,
 )
 
 from src.api.core.operation.media import (
@@ -86,7 +87,6 @@ async def update_product(
     request: ProductForm = Depends(),
 ):
 
-    user_id = user.get("id")
     shop_id = user.get("default_shop_id")
     product = session.exec(
         select(Product).where(Product.id == id, Product.shop_id == shop_id)
@@ -123,7 +123,7 @@ async def update_product(
     )
 
 
-@router.get("/read/{id}", response_model=ProductRead)
+@router.get("/read/{id}", response_model=ProductSingleRead)
 def findOne(
     id: int,
     session: GetSession,
@@ -132,7 +132,7 @@ def findOne(
     read = session.get(Product, id)
 
     raiseExceptions((read, 404, "Product not found"))
-    data = ProductRead.model_validate(read)
+    data = ProductSingleRead.model_validate(read)
 
     return api_response(200, "Product Found", data)
 
@@ -168,4 +168,22 @@ def list(query_params: ListQueryParams, category_id: int, session: GetSession):
         Model=Product,
         Schema=ProductRead,
         otherFilters=otherFilters,
+    )
+
+
+@router.get("/my-products")
+def list(
+    query_params: ListQueryParams,
+    user=requireShopPermission(["product:create", "product:read"]),
+):
+    shop_id = user.get("default_shop_id")
+    query_params = vars(query_params)
+    searchFields = ["name", "description", "slug", "sku"]
+
+    return listRecords(
+        query_params=query_params,
+        searchFields=searchFields,
+        Model=Product,
+        Schema=ProductRead,
+        customFilters=[["shop_id", shop_id]],
     )
