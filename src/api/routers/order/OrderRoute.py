@@ -10,9 +10,12 @@ from src.api.core.dependencies import (
     requireDefaultShop,
 )
 from src.api.core.operation import listRecords, serialize_obj
+from src.api.core.operation.media import uploadMediaFiles
 from src.api.core.response import api_response, raiseExceptions
 from src.api.models.order_model.orderItemModel import (
     OrderItem,
+    OrderItemForm,
+    OrderItemRead,
 )
 from src.api.models.order_model.orderModel import Order, OrderForm, OrderRead
 from src.api.models.product_model.ProductVariantModel import ProductVariant
@@ -78,10 +81,8 @@ async def create_order(
 
     data = serialize_obj(request)
     items_data = data.pop("items", []) or []
-    if not isinstance(items_data, list) or not items_data:
-        return api_response(400, "Order items are required")
 
-    data["user_id"] = data.get("user_id") or user.get("id")
+    data["user_id"] = user.get("id")
     data["shop_id"] = shop_id
     data["order_number"] = data.get("order_number") or generate_order_number(session)
 
@@ -101,9 +102,10 @@ async def create_order(
         subtotal += order_item.price * order_item.quantity
         session.add(order_item)
 
-    order.subtotal = subtotal
-    order.total = subtotal - (order.discount or 0)
-    session.add(order)
+    if items_data:
+        order.subtotal = subtotal
+        order.total = subtotal - (order.discount or 0)
+        session.add(order)
 
     session.commit()
     session.refresh(order)
@@ -112,6 +114,44 @@ async def create_order(
         201,
         "Order Created Successfully",
         OrderRead.model_validate(order),
+    )
+
+
+@router.post("/order-item/create/{order_id}", response_model=OrderItemRead)
+async def create_order_item(
+    order_id: int,
+    session: GetSession,
+    user: requireDefaultShop,
+    request: OrderItemForm = Depends(),
+):
+    shop_id = user.get("default_shop_id")
+    order = session.exec(
+        select(Order).where(Order.id == order_id, Order.shop_id == shop_id)
+    ).first()
+    raiseExceptions((order, 404, "Order not found"))
+
+    data = serialize_obj(request)
+    await uploadMediaFiles(session, data, request)
+
+    variant = None
+    if data.get("product_variant_id"):
+        variant = get_shop_variant(session, data["product_variant_id"], shop_id)
+        raiseExceptions((variant, 404, "Product Variant not found"))
+
+    order_item = build_order_item(data, order_id, variant)
+    session.add(order_item)
+
+    order.subtotal = (order.subtotal or 0) + (order_item.price * order_item.quantity)
+    order.total = order.subtotal - (order.discount or 0)
+    session.add(order)
+
+    session.commit()
+    session.refresh(order_item)
+
+    return api_response(
+        201,
+        "Order Item Created Successfully",
+        OrderItemRead.model_validate(order_item),
     )
 
 
@@ -143,7 +183,6 @@ def delete_order(
         select(Order).where(Order.id == id, Order.shop_id == shop_id)
     ).first()
     raiseExceptions((order, 404, "Order not found"))
-    order_number = order.order_number
 
     order_items = session.exec(select(OrderItem).where(OrderItem.order_id == id)).all()
     for item in order_items:
@@ -152,7 +191,7 @@ def delete_order(
     session.delete(order)
     session.commit()
 
-    return api_response(200, f"The Order {order_number} deleted")
+    return api_response(200, f"The Order {order.order_number} deleted")
 
 
 @router.get("/list", response_model=list[OrderRead])
