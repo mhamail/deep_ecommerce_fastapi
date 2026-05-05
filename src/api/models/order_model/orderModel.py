@@ -1,8 +1,8 @@
 from typing import TYPE_CHECKING, Optional, List
 
 from fastapi import Form
+from sqlalchemy import Column, JSON, String, text
 from sqlmodel import Field, Relationship, SQLModel
-from sqlalchemy import Column, JSON
 
 from src.api.models.order_model.orderItemModel import OrderItemRead
 from src.api.models.utils import clean, clean_json, to_float, to_int
@@ -22,7 +22,16 @@ class Order(TimeStampedModel, table=True):
     shop_id: Optional[int] = Field(default=None, foreign_key="shops.id", index=True)
 
     # Order Info
-    order_number: str = Field(index=True, unique=True)
+    order_number: str = Field(
+        sa_column=Column(
+            String,
+            nullable=False,
+            unique=True,
+            index=True,
+            default=text("nextval('order_number_seq')::text"),
+            server_default=text("nextval('order_number_seq')::text"),
+        ),
+    )
 
     # Pricing Summary
     subtotal: float = Field(default=0)

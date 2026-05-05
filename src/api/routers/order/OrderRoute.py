@@ -1,5 +1,3 @@
-from uuid import uuid4
-
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import selectinload
 from sqlmodel import select
@@ -24,16 +22,6 @@ from src.api.models.product_model.productModel import Product
 router = APIRouter(prefix="/order", tags=["Order"])
 
 
-def generate_order_number(session: GetSession) -> str:
-    while True:
-        order_number = f"ORD-{uuid4().hex[:10].upper()}"
-        exists = session.exec(
-            select(Order.id).where(Order.order_number == order_number)
-        ).first()
-        if not exists:
-            return order_number
-
-
 def get_shop_variant(session: GetSession, variant_id: int, shop_id: int):
     return session.exec(
         select(ProductVariant)
@@ -42,26 +30,44 @@ def get_shop_variant(session: GetSession, variant_id: int, shop_id: int):
     ).first()
 
 
-def build_order_item(data: dict, order_id: int, variant: ProductVariant | None = None):
+def get_shop_product(session: GetSession, product_id: int, shop_id: int):
+    return session.exec(
+        select(Product).where(Product.id == product_id, Product.shop_id == shop_id)
+    ).first()
+
+
+def build_order_item(
+    data: dict,
+    order_id: int,
+    variant: ProductVariant | None = None,
+    product: Product | None = None,
+):
     item_data = {
         "order_id": order_id,
+        "product_id": data.get("product_id"),
         "product_variant_id": data.get("product_variant_id"),
         "quantity": data.get("quantity") or 1,
     }
 
     if variant:
-        item_data["product_name"] = item_data["product_name"] or variant.product.name
-        item_data["variant_attributes"] = (
-            item_data["variant_attributes"] or variant.attributes
-        )
-        item_data["price"] = (
-            item_data["price"]
-            if item_data["price"] is not None
-            else variant.discount_price or variant.price or 0
-        )
-        item_data["image"] = item_data["image"] or variant.image
+        item_data["product_id"] = variant.product_id
+        item_data["product_name"] = variant.product.name
+        item_data["variant_attributes"] = variant.attributes
+        item_data["price"] = variant.discount_price or variant.price or 0
+        item_data["image"] = variant.image
+    elif product:
+        item_data["product_id"] = product.id
+        item_data["product_name"] = product.name
+        item_data["variant_attributes"] = product.attributes
+        item_data["price"] = product.discount_price or product.price or 0
+        item_data["image"] = product.thumbnail
+    else:
+        item_data["product_name"] = data.get("product_name")
+        item_data["variant_attributes"] = data.get("variant_attributes")
+        item_data["price"] = data.get("price")
+        item_data["image"] = data.get("image")
 
-    raiseExceptions((item_data["product_name"], 400, "Product name is required"))
+    raiseExceptions((item_data.get("product_name"), 400, "Product name is required"))
     raiseExceptions((item_data["price"] is not None, 400, "Price is required"))
 
     return OrderItem(**item_data)
@@ -79,26 +85,27 @@ async def create_order(
 
     data = serialize_obj(request)
     items_data = data.pop("items", []) or []
-    print("=====<===============>======", items_data)
+    print("======<===============>======", items_data)
 
     data["user_id"] = user_id
     data["shop_id"] = shop_id
-    data["order_number"] = generate_order_number(session)
-
     order = Order(**data)
     session.add(order)
     session.flush()
 
     subtotal = 0
     for item_data in items_data:
-        # await uploadMediaFiles(session, item_data, request)
         variant = None
+        product = None
         variant_id = item_data.get("product_variant_id")
         if variant_id:
             variant = get_shop_variant(session, variant_id, shop_id)
             raiseExceptions((variant, 404, "Product Variant not found"))
+        elif item_data.get("product_id"):
+            product = get_shop_product(session, item_data["product_id"], shop_id)
+            raiseExceptions((product, 404, "Product not found"))
 
-        order_item = build_order_item(item_data, order.id, variant)
+        order_item = build_order_item(item_data, order.id, variant, product)
         subtotal += order_item.price * order_item.quantity
         session.add(order_item)
 
@@ -134,11 +141,15 @@ async def create_order_item(
     await uploadMediaFiles(session, data, request)
 
     variant = None
+    product = None
     if data.get("product_variant_id"):
         variant = get_shop_variant(session, data["product_variant_id"], shop_id)
         raiseExceptions((variant, 404, "Product Variant not found"))
+    elif data.get("product_id"):
+        product = get_shop_product(session, data["product_id"], shop_id)
+        raiseExceptions((product, 404, "Product not found"))
 
-    order_item = build_order_item(data, order_id, variant)
+    order_item = build_order_item(data, order_id, variant, product)
     session.add(order_item)
 
     order.subtotal = (order.subtotal or 0) + (order_item.price * order_item.quantity)

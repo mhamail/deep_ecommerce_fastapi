@@ -9,7 +9,7 @@ from src.api.models.utils import clean, clean_json, to_float, to_int
 from src.api.models.baseModel import TimeStampReadModel, TimeStampedModel
 
 if TYPE_CHECKING:
-    from src.api.models import ProductVariant, Order
+    from src.api.models import ProductVariant, Order, Product
 
 
 class OrderItem(TimeStampedModel, table=True):
@@ -18,6 +18,8 @@ class OrderItem(TimeStampedModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
 
     order_id: int = Field(foreign_key="orders.id", index=True)
+
+    product_id: Optional[int] = Field(default=None, foreign_key="products.id", index=True)
 
     # IMPORTANT: link to variant
     product_variant_id: Optional[int] = Field(
@@ -35,12 +37,14 @@ class OrderItem(TimeStampedModel, table=True):
 
     # Relationships
     order: "Order" = Relationship(back_populates="items")
+    product: Optional["Product"] = Relationship()
     variant: "ProductVariant" = Relationship()
 
 
 class OrderItemRead(SQLModel, TimeStampReadModel):
     id: int
     order_id: int
+    product_id: Optional[int] = None
     product_variant_id: Optional[int] = None
     product_name: str
     variant_attributes: Optional[dict] = None
@@ -52,6 +56,7 @@ class OrderItemRead(SQLModel, TimeStampReadModel):
 class OrderItemForm:
     def __init__(
         self,
+        product_id: Optional[int] = Form(None),
         product_variant_id: Optional[int] = Form(None),
         product_name: Optional[str] = Form(None),
         variant_attributes: Optional[str] = Form(None),
@@ -59,6 +64,7 @@ class OrderItemForm:
         quantity: Optional[int] = Form(1),
         image: Optional[Union[UploadFile, str]] = File(None),
     ):
+        self.product_id = to_int(product_id)
         self.product_variant_id = to_int(product_variant_id)
         self.product_name = clean(product_name)
         self.variant_attributes = (
