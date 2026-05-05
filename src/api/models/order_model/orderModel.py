@@ -60,22 +60,21 @@ class OrderForm:
     def __init__(
         self,
         user_id: Optional[int] = Form(None),
-        shop_id: Optional[int] = Form(None),
-        order_number: Optional[str] = Form(None),
-        subtotal: Optional[float] = Form(0),
-        discount: Optional[float] = Form(0),
-        total: Optional[float] = Form(0),
+        shop_id: Optional[int] = Form(22),
         status: Optional[str] = Form("pending"),
         payment_status: Optional[str] = Form("pending"),
-        shipping_address: Optional[str] = Form(None),
-        items: Optional[str] = Form(None),
+        shipping_address: Optional[str] = Form(
+            {
+                "city": "Rawalpindi",
+                "state": "Punjab",
+                "Address": "house# 123, street# 3, British Colony",
+                "phone": "923123456789",
+            }
+        ),
+        items: Optional[str] = Form([{"product_variant_id": 0, "quantity": 1}]),
     ):
         self.user_id = to_int(user_id)
         self.shop_id = to_int(shop_id)
-        self.order_number = clean(order_number)
-        self.subtotal = to_float(subtotal) or 0
-        self.discount = to_float(discount) or 0
-        self.total = to_float(total) or 0
         self.status = clean(status) or "pending"
         self.payment_status = clean(payment_status) or "pending"
         self.shipping_address = (

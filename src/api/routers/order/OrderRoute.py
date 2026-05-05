@@ -46,11 +46,7 @@ def build_order_item(data: dict, order_id: int, variant: ProductVariant | None =
     item_data = {
         "order_id": order_id,
         "product_variant_id": data.get("product_variant_id"),
-        "product_name": data.get("product_name"),
-        "variant_attributes": data.get("variant_attributes"),
-        "price": data.get("price"),
         "quantity": data.get("quantity") or 1,
-        "image": data.get("image"),
     }
 
     if variant:
@@ -74,17 +70,20 @@ def build_order_item(data: dict, order_id: int, variant: ProductVariant | None =
 @router.post("/create", response_model=OrderRead)
 async def create_order(
     session: GetSession,
-    user: requireDefaultShop,
     request: OrderForm = Depends(),
 ):
-    shop_id = user.get("default_shop_id")
+    print(request.user_id)
+    shop_id = request.shop_id
+    raiseExceptions((shop_id, 400, "Shop ID is required"))
+    user_id = request.user_id or None
 
     data = serialize_obj(request)
     items_data = data.pop("items", []) or []
+    print("=====<===============>======", items_data)
 
-    data["user_id"] = user.get("id")
+    data["user_id"] = user_id
     data["shop_id"] = shop_id
-    data["order_number"] = data.get("order_number") or generate_order_number(session)
+    data["order_number"] = generate_order_number(session)
 
     order = Order(**data)
     session.add(order)
@@ -92,6 +91,7 @@ async def create_order(
 
     subtotal = 0
     for item_data in items_data:
+        # await uploadMediaFiles(session, item_data, request)
         variant = None
         variant_id = item_data.get("product_variant_id")
         if variant_id:
