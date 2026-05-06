@@ -59,7 +59,7 @@ class ProductVariantRead(SQLModel, TimeStampReadModel):
     is_in_stock: bool
 
     # Attributes
-    attributes: Optional[dict] = []
+    attributes: Optional[dict] = None
     # Example: {"color": "Red", "size": "M"}
 
     # Media
@@ -72,7 +72,7 @@ class ProductVariantForm:
         # -------------------------
         # Variant Identity
         # -------------------------
-        sku: Optional[str] = Form(None),
+        sku: Optional[str] = Form(""),
         # -------------------------
         # Pricing
         # -------------------------
@@ -90,7 +90,7 @@ class ProductVariantForm:
         # -------------------------
         # JSON Fields
         # -------------------------
-        attributes: Optional[str] = Form(None),  # JSON string
+        attributes: Optional[str] = Form({}),  # JSON string
         # -------------------------
         # Status
         # -------------------------

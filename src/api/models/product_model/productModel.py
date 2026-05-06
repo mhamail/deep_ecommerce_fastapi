@@ -45,6 +45,10 @@ class Product(TimeStampedModel, table=True):
     attributes: Optional[List[dict]] = Field(
         default_factory=list, sa_column=Column(JSON)
     )
+    # Example :[
+    #   {"name": "brand", "value": "Nike"},
+    #   {"name": "material", "value": "Cotton"}
+    # ]
     tags: Optional[List[str]] = Field(default_factory=list, sa_column=Column(JSON))
 
     # SEO
@@ -94,7 +98,7 @@ class ProductBase(SQLModel):
     # images: Optional[List[Optional[MediaRead]]] = None
 
     # Attributes
-    attributes: Optional[List[dict]] = []
+    attributes: Optional[List[dict]] = [{"name": "", "value": ""}]
     tags: Optional[List[str]] = []
 
     # SEO
@@ -125,12 +129,12 @@ class ProductSingleRead(ProductBase, TimeStampReadModel):
 class ProductForm:
     def __init__(
         self,
-        name: Optional[str] = Form(None),
-        description: Optional[str] = Form(None),
+        name: Optional[str] = Form(""),
+        description: Optional[str] = Form(""),
         price: Optional[float] = Form(None),
         discount_price: Optional[float] = Form(None),
         cost_price: Optional[float] = Form(None),
-        sku: Optional[str] = Form(None),
+        sku: Optional[str] = Form(""),
         stock: Optional[int] = Form(None),
         is_active: Optional[bool] = Form(True),
         is_featured: Optional[bool] = Form(False),
@@ -141,9 +145,11 @@ class ProductForm:
         # JSON fields
         attributes: Optional[str] = Form(None),
         tags: Optional[str] = Form(None),
+        variant_data: Optional[str] = Form(None),
+        # Example [{"price":200,"stock":2,"attribute":{"size":"xl"}}]
         # SEO
-        meta_title: Optional[str] = Form(None),
-        meta_description: Optional[str] = Form(None),
+        meta_title: Optional[str] = Form(""),
+        meta_description: Optional[str] = Form(""),
         # relations
         category_id: Optional[int] = Form(None),
     ):
@@ -172,6 +178,7 @@ class ProductForm:
         # JSON
         self.attributes = clean_json(attributes) or []
         self.tags = clean_json(tags) or []
+        self.variant_data = clean_json(variant_data)
 
         # SEO
         self.meta_title = clean(meta_title)

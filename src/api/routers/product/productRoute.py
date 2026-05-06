@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, UploadFile
 from sqlmodel import exists, select
+from src.api.models.product_model.ProductVariantModel import ProductVariant
 from src.api.routers.category.fn import get_category_subtree_ids
 from src.api.models.category_model import Category
 from src.api.core.utility import uniqueSlugify
@@ -28,7 +29,7 @@ from src.api.core.operation.media import (
 router = APIRouter(prefix="/product", tags=["Product"])
 
 
-@router.post("/create", response_model=ProductRead)
+@router.post("/create", response_model=ProductSingleRead)
 async def create_product(
     session: GetSession,
     user=requireShopPermission(["product:create"]),
@@ -66,16 +67,58 @@ async def create_product(
     # ==========================
     # Create product
     # ==========================
+
     product = Product(**data)
 
     session.add(product)
+    session.flush()
+
+    if request.variant_data and len(request.variant_data) > 0:
+        for variant in request.variant_data:
+
+            image = variant.get("image")
+
+            if image and not isinstance(image, str):
+                image = await uploadSingleMedia(image, session)
+
+            variant_data = {
+                "product_id": product.id,
+                "price": variant.get("price"),
+                "discount_price": variant.get("discount_price"),
+                "stock": variant.get("stock", 0),
+                "is_in_stock": variant.get("is_in_stock", True),
+                "sku": variant.get("sku"),
+                "attributes": variant.get("attributes", {}),
+                # "image": image,
+            }
+
+            productVariant = ProductVariant(**variant_data)
+            session.add(productVariant)
+    else:
+        variant_data = {
+            "product_id": product.id,
+            "price": product.price,
+            "discount_price": product.discount_price,
+            "stock": product.stock,
+            "is_in_stock": product.is_in_stock,
+            "sku": product.sku,
+            "attributes": {},
+            "image": product.thumbnail,
+        }
+        # ==========================
+        # Add Default product Variant
+        # ==========================
+        productVariant = ProductVariant(**variant_data)
+
+        session.add(productVariant)
+
     session.commit()
     session.refresh(product)
 
     return api_response(
         201,
         "Product Created Successfully",
-        ProductRead.model_validate(product),
+        ProductSingleRead.model_validate(product),
     )
 
 
