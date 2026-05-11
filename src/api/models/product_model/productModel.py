@@ -27,16 +27,6 @@ class Product(TimeStampedModel, table=True):
     slug: str = Field(max_length=191, unique=True, index=True)
     description: Optional[str] = None
 
-    # Pricing
-    price: float = Field(default=0, index=True)
-    discount_price: Optional[float] = Field(default=None)
-    cost_price: Optional[float] = Field(default=None)
-
-    # Inventory
-    sku: Optional[str] = Field(default=None, max_length=100, index=True)
-    stock: int = Field(default=0)
-    is_in_stock: bool = Field(default=True)
-
     # Media
     thumbnail: Optional[dict] = Field(default=None, sa_column=Column(JSON))
     images: Optional[List[dict]] = Field(default_factory=list, sa_column=Column(JSON))

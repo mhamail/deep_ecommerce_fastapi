@@ -30,12 +30,6 @@ def get_shop_variant(session: GetSession, variant_id: int, shop_id: int):
     ).first()
 
 
-def get_shop_product(session: GetSession, product_id: int, shop_id: int):
-    return session.exec(
-        select(Product).where(Product.id == product_id, Product.shop_id == shop_id)
-    ).first()
-
-
 def build_order_item(
     data: dict,
     order_id: int,
@@ -101,9 +95,6 @@ async def create_order(
         if variant_id:
             variant = get_shop_variant(session, variant_id, shop_id)
             raiseExceptions((variant, 404, "Product Variant not found"))
-        elif item_data.get("product_id"):
-            product = get_shop_product(session, item_data["product_id"], shop_id)
-            raiseExceptions((product, 404, "Product not found"))
 
         order_item = build_order_item(item_data, order.id, variant, product)
         subtotal += order_item.price * order_item.quantity
@@ -145,9 +136,6 @@ async def create_order_item(
     if data.get("product_variant_id"):
         variant = get_shop_variant(session, data["product_variant_id"], shop_id)
         raiseExceptions((variant, 404, "Product Variant not found"))
-    elif data.get("product_id"):
-        product = get_shop_product(session, data["product_id"], shop_id)
-        raiseExceptions((product, 404, "Product not found"))
 
     order_item = build_order_item(data, order_id, variant, product)
     session.add(order_item)
