@@ -29,6 +29,77 @@ from src.api.core.operation.media import (
 router = APIRouter(prefix="/product", tags=["Product"])
 
 
+def _variant_payload(product_id: int, variant: dict):
+    return {
+        "product_id": product_id,
+        "price": variant.get("price"),
+        "discount_price": variant.get("discount_price"),
+        "stock": variant.get("stock", 0),
+        "is_in_stock": variant.get("is_in_stock", True),
+        "sku": variant.get("sku"),
+        "attributes": variant.get("attributes", {}),
+        "image": variant.get("image"),
+    }
+
+
+def _default_variant_payload(product: Product):
+    return {
+        "product_id": product.id,
+        "price": product.price,
+        "discount_price": product.discount_price,
+        "stock": product.stock,
+        "is_in_stock": product.is_in_stock,
+        "sku": product.sku,
+        "attributes": {},
+        "image": product.thumbnail,
+    }
+
+
+def _update_variant_from_payload(product_variant: ProductVariant, payload: dict):
+    for field, value in payload.items():
+        if field in {"id", "product_id"}:
+            continue
+
+        if value is not None and hasattr(product_variant, field):
+            setattr(product_variant, field, value)
+
+
+def upsert_product_variants(session, product: Product, request: ProductForm):
+    if not request.variant_data:
+        return
+
+    for variant in request.variant_data:
+        variant_id = variant.get("id")
+
+        if variant_id:
+            product_variant = session.exec(
+                select(ProductVariant).where(
+                    ProductVariant.id == variant_id,
+                    ProductVariant.product_id == product.id,
+                )
+            ).first()
+            raiseExceptions((product_variant, 404, "Product Variant not found"))
+
+            _update_variant_from_payload(product_variant, variant)
+            session.add(product_variant)
+            continue
+
+        # =====================================
+        # CREATE NEW VARIANT
+        # =====================================
+
+        else:
+
+            product_variant = ProductVariant(
+                **_variant_payload(
+                    product.id,
+                    variant,
+                )
+            )
+
+            session.add(product_variant)
+
+
 @router.post("/create", response_model=ProductSingleRead)
 async def create_product(
     session: GetSession,
@@ -95,19 +166,10 @@ async def create_product(
             productVariant = ProductVariant(**variant_data)
             session.add(productVariant)
     else:
-        variant_data = {
-            "product_id": product.id,
-            "price": product.price,
-            "discount_price": product.discount_price,
-            "stock": product.stock,
-            "is_in_stock": product.is_in_stock,
-            "sku": product.sku,
-            "attributes": {},
-            "image": product.thumbnail,
-        }
-        # ==========================
+        variant_data = _default_variant_payload(product)
+        # =============================
         # Add Default product Variant
-        # ==========================
+        # =============================
         productVariant = ProductVariant(**variant_data)
 
         session.add(productVariant)
@@ -122,14 +184,13 @@ async def create_product(
     )
 
 
-@router.post("/update/{id}", response_model=ProductRead)
+@router.post("/update/{id}", response_model=ProductSingleRead)
 async def update_product(
     id: int,
     session: GetSession,
     user=requireShopPermission(["product:create", "product:update"]),
     request: ProductForm = Depends(),
 ):
-
     shop_id = user.get("default_shop_id")
     product = session.exec(
         select(Product).where(Product.id == id, Product.shop_id == shop_id)
@@ -155,6 +216,7 @@ async def update_product(
     # ==========================
 
     updated_product = updateOp(product, request, session)
+    upsert_product_variants(session, updated_product, request)
 
     session.commit()
     session.refresh(updated_product)
@@ -162,7 +224,7 @@ async def update_product(
     return api_response(
         200,
         "Product Updated Successfully",
-        ProductRead.model_validate(updated_product),
+        ProductSingleRead.model_validate(updated_product),
     )
 
 

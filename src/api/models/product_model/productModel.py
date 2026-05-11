@@ -74,15 +74,6 @@ class ProductBase(SQLModel):
     slug: str
     description: Optional[str] = None
 
-    # Pricing
-    price: float
-    discount_price: Optional[float] = None
-
-    # Inventory
-    sku: Optional[str] = None
-    stock: int
-    is_in_stock: bool
-
     # Media
     thumbnail: Optional[MediaRead] = None
     # images: Optional[List[Optional[MediaRead]]] = None
@@ -119,22 +110,19 @@ class ProductSingleRead(ProductBase, TimeStampReadModel):
 class ProductForm:
     def __init__(
         self,
+        # Basic Info
         name: Optional[str] = Form(""),
         description: Optional[str] = Form(""),
-        price: Optional[float] = Form(None),
-        discount_price: Optional[float] = Form(None),
-        cost_price: Optional[float] = Form(None),
-        sku: Optional[str] = Form(""),
-        stock: Optional[int] = Form(None),
+        # Status
         is_active: Optional[bool] = Form(True),
         is_featured: Optional[bool] = Form(False),
         # Media
         thumbnail: Optional[Union[UploadFile, str]] = File(None),
-        # images: Optional[List[UploadFile]] = File(None),
         delete_images: Optional[List[str]] = Form(None),
         # JSON fields
         attributes: Optional[str] = Form(None),
         tags: Optional[str] = Form(None),
+        # Variants
         variant_data: Optional[str] = Form(None),
         # Example [{"price":200,"stock":2,"attribute":{"size":"xl"}}]
         # SEO
@@ -149,13 +137,6 @@ class ProductForm:
         # ==========================
         self.name = clean(name)
         self.description = clean(description)
-
-        self.price = to_float(price) or 0
-        self.discount_price = to_float(discount_price)
-        self.cost_price = to_float(cost_price)
-
-        self.sku = clean(sku)
-        self.stock = to_int(stock) or 0
 
         self.is_active = to_bool(is_active) if is_active is not None else True
         self.is_featured = to_bool(is_featured) if is_featured is not None else False
