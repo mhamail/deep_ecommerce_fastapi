@@ -121,9 +121,16 @@ class ProductForm:
         delete_images: Optional[List[str]] = Form(None),
         # JSON fields
         attributes: Optional[str] = Form(None),
+        # Example: [{"name": "color", "value": "red"}, {"name": "size", "value": "M"}]
         tags: Optional[str] = Form(None),
         # Variants
-        variant_data: Optional[str] = Form(None),
+        variant_data: Optional[str] = Form(
+            None,
+            description="JSON array of product variants.",
+            examples=[
+                '[{"price": 1000, "discount_price": 900, "stock": 10, "sku": "TSHIRT-RED-M", "attributes": {"color": "red", "size": "M"}}]'
+            ],
+        ),
         # Example [{"price":200,"stock":2,"attribute":{"size":"xl"}}]
         # SEO
         meta_title: Optional[str] = Form(""),

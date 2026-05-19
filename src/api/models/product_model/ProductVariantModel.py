@@ -90,7 +90,11 @@ class ProductVariantForm:
         # -------------------------
         # JSON Fields
         # -------------------------
-        attributes: Optional[str] = Form({}),  # JSON string
+        attributes: Optional[str] = Form(
+            {},
+            description="JSON object containing variant attributes.",
+            examples=['{"color": "Red", "size": "L"}'],
+        ),
         # -------------------------
         # Status
         # -------------------------
