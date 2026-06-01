@@ -1,6 +1,6 @@
-from typing import TYPE_CHECKING, Optional, List
+from typing import TYPE_CHECKING, Optional, List, Union
 
-from fastapi import Form
+from fastapi import File, Form, UploadFile
 from sqlalchemy import Column, JSON
 from sqlmodel import Field, Relationship, SQLModel
 
@@ -62,6 +62,8 @@ class CartItemForm:
             description="JSON object containing selected variant attributes.",
             examples=['{"color": "red", "size": "M"}'],
         ),
+        # Media
+        image: Optional[Union[UploadFile, str]] = File(None),
     ):
         self.product_id = to_int(product_id)
         self.product_variant_id = to_int(product_variant_id)
@@ -70,3 +72,4 @@ class CartItemForm:
         self.variant_attributes = (
             clean_json(variant_attributes) if variant_attributes is not None else None
         )
+        self.image = image

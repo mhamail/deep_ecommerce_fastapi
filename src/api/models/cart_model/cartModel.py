@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING, Optional, List
 
 from fastapi import Form
 
-from sqlmodel import Field, Relationship, SQLModel
+from sqlmodel import Field, Relationship, SQLModel, UniqueConstraint
 
 from src.api.models.cart_model.cartItemModel import CartItemRead
 from src.api.models.utils import clean_json, to_float, to_int
@@ -10,7 +10,7 @@ from src.api.models.baseModel import TimeStampReadModel, TimeStampedModel
 
 if TYPE_CHECKING:
     from src.api.models import User, Shop
-    from src.api.models.cart_model import CartItem
+    from src.api.models.cart_model.cartItemModel import CartItem
 
 
 class Cart(TimeStampedModel, table=True):
@@ -20,7 +20,11 @@ class Cart(TimeStampedModel, table=True):
 
     # Relations
     user_id: Optional[int] = Field(default=None, foreign_key="users.id", index=True)
-    shop_id: Optional[int] = Field(default=None, foreign_key="shops.id", index=True)
+    shop_id: Optional[int] = Field(
+        default=None,
+        foreign_key="shops.id",
+        index=True,
+    )
 
     # Pricing Summary
     subtotal: float = Field(default=0)
@@ -29,8 +33,20 @@ class Cart(TimeStampedModel, table=True):
     # Status
     status: str = Field(default="active", index=True)
 
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "shop_id",
+            "status",
+            name="uq_cart_user_shop_status",
+        ),
+    )
+
     # Relationships
-    items: List["CartItem"] = Relationship(back_populates="cart")
+    items: List["CartItem"] = Relationship(
+        back_populates="cart",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"},
+    )
     user: Optional["User"] = Relationship()
     shop: Optional["Shop"] = Relationship()
 
@@ -48,7 +64,6 @@ class CartRead(SQLModel, TimeStampReadModel):
 class CartForm:
     def __init__(
         self,
-        user_id: Optional[int] = Form(None),
         shop_id: Optional[int] = Form(None),
         status: Optional[str] = Form("active"),
         items: Optional[str] = Form(
@@ -57,7 +72,7 @@ class CartForm:
             examples=['[{"product_variant_id": 1, "quantity": 2}]'],
         ),
     ):
-        self.user_id = to_int(user_id)
+
         self.shop_id = to_int(shop_id)
         self.status = status or "active"
         self.items = clean_json(items) if items is not None else []

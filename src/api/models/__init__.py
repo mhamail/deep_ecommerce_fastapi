@@ -5,7 +5,7 @@ from src.api.models.mediaModel import Media
 from src.api.models.role_model.roleModel import Role
 from src.api.models.role_model.userRoleModel import UserRole
 
-# MAIN
+#### MAIN ####
 from src.api.models.category_model import Category
 
 # shop
@@ -21,4 +21,5 @@ from src.api.models.order_model.orderModel import Order
 from src.api.models.order_model.orderItemModel import OrderItem
 
 # cart
-from api.models.cart_model.cartModel import Cart, CartItem
+from src.api.models.cart_model.cartModel import Cart
+from src.api.models.cart_model.cartItemModel import CartItem
