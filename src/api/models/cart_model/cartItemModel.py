@@ -5,7 +5,7 @@ from sqlalchemy import Column, JSON
 from sqlmodel import Field, Relationship, SQLModel
 
 from src.api.models.mediaModel import MediaRead
-from src.api.models.utils import clean_json, to_float, to_int
+from src.api.models.utils import clean_json, to_int
 from src.api.models.baseModel import TimeStampReadModel, TimeStampedModel
 
 if TYPE_CHECKING:
@@ -26,7 +26,6 @@ class CartItem(TimeStampedModel, table=True):
     )
 
     # Cart Item Info
-    price: Optional[float] = None
     quantity: int = Field(default=1)
     variant_attributes: Optional[dict] = Field(default=None, sa_column=Column(JSON))
 
@@ -37,6 +36,16 @@ class CartItem(TimeStampedModel, table=True):
     cart: "Cart" = Relationship(back_populates="items")
     product: Optional["Product"] = Relationship()
     variant: Optional["ProductVariant"] = Relationship()
+
+    @property
+    def price(self) -> Optional[float]:
+        if not self.variant:
+            return None
+
+        if self.variant.discount_price is not None:
+            return self.variant.discount_price
+
+        return self.variant.price
 
 
 class CartItemRead(SQLModel, TimeStampReadModel):
@@ -55,7 +64,6 @@ class CartItemForm:
         self,
         product_id: Optional[int] = Form(None),
         product_variant_id: Optional[int] = Form(None),
-        price: Optional[float] = Form(None),
         quantity: Optional[int] = Form(1),
         variant_attributes: Optional[str] = Form(
             None,
@@ -67,7 +75,6 @@ class CartItemForm:
     ):
         self.product_id = to_int(product_id)
         self.product_variant_id = to_int(product_variant_id)
-        self.price = to_float(price)
         self.quantity = to_int(quantity) or 1
         self.variant_attributes = (
             clean_json(variant_attributes) if variant_attributes is not None else None

@@ -5,7 +5,7 @@ from fastapi import Form
 from sqlmodel import Field, Relationship, SQLModel, UniqueConstraint
 
 from src.api.models.cart_model.cartItemModel import CartItemRead
-from src.api.models.utils import clean_json, to_float, to_int
+from src.api.models.utils import clean_json, to_int
 from src.api.models.baseModel import TimeStampReadModel, TimeStampedModel
 
 if TYPE_CHECKING:
@@ -25,10 +25,6 @@ class Cart(TimeStampedModel, table=True):
         foreign_key="shops.id",
         index=True,
     )
-
-    # Pricing Summary
-    subtotal: float = Field(default=0)
-    total_items: int = Field(default=0)
 
     # Status
     status: str = Field(default="active", index=True)
@@ -50,6 +46,14 @@ class Cart(TimeStampedModel, table=True):
     user: Optional["User"] = Relationship()
     shop: Optional["Shop"] = Relationship()
 
+    @property
+    def total_items(self) -> int:
+        return sum(item.quantity or 0 for item in self.items)
+
+    @property
+    def subtotal(self) -> float:
+        return sum((item.price or 0) * (item.quantity or 0) for item in self.items)
+
 
 class CartRead(SQLModel, TimeStampReadModel):
     id: int
@@ -58,6 +62,9 @@ class CartRead(SQLModel, TimeStampReadModel):
     subtotal: float
     total_items: int
     status: str
+
+
+class CartAndItems(CartRead):
     items: List[CartItemRead] = []
 
 

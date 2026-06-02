@@ -56,6 +56,7 @@ async def create_cart(
         for item_data in cart_form.items:
             variant_id = item_data.get("product_variant_id")
             raiseExceptions((variant_id, 404, "Product Variant Id not found"))
+            # Get product variant
             variant = get_shop_variant(db, variant_id, cart_form.shop_id)
             raiseExceptions((variant, 404, "Product Variant not found"))
             qty = item_data.get("quantity", 1)
@@ -88,19 +89,12 @@ async def create_cart(
                         product_variant_id=variant.id,
                         quantity=qty,
                         product_id=variant.product_id,
-                        price=variant.discount_price or variant.price or 0,
                         variant_attributes=variant.attributes,
                         image=variant.image,
                     )
                 )
 
         db.flush()
-
-    # Refresh summary
-    cart_items = db.exec(select(CartItem).where(CartItem.cart_id == cart.id)).all()
-
-    cart.total_items = sum(i.quantity or 0 for i in cart_items)
-    cart.subtotal = sum((i.price or 0) * (i.quantity or 0) for i in cart_items)
 
     db.add(cart)
     db.commit()
@@ -140,4 +134,22 @@ def delete_cart(
     return api_response(
         200,
         "Cart deleted successfully",
+    )
+
+
+@router.get("/read/{id}", response_model=list[CartRead])
+def read(
+    id: int,
+    user: requireSignin,
+    session: GetSession,
+):
+
+    query = session.exec(
+        select(Cart).where(Cart.user_id == user["id"], Cart.id == id)
+    ).first()
+    raiseExceptions((query, 404, "Cart not found"))
+    return api_response(
+        200,
+        "Cart Found",
+        CartRead.model_validate(query),
     )
