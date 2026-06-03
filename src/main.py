@@ -25,7 +25,7 @@ from src.api.routers.auth import (
     userRoute,
     verifymeRoute,
 )
-from src.api.routers.cart import cartRoute
+from src.api.routers.cart import cartRoute, cartItemRoute
 
 from src.api.routers import mediaRoute
 
@@ -152,3 +152,4 @@ app.include_router(productRoute.router)
 app.include_router(productVariantRoute.router)
 app.include_router(OrderRoute.router)
 app.include_router(cartRoute.router)
+app.include_router(cartItemRoute.router)

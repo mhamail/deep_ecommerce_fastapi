@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, UploadFile
+from sqlalchemy.orm import selectinload
 from sqlmodel import exists, select
 from src.api.models.product_model.ProductVariantModel import ProductVariant
 from src.api.models.product_model.productModel import Product
@@ -11,8 +12,15 @@ from src.api.core.dependencies import (
     ListQueryParams,
     requireSignin,
 )
-from src.api.models.cart_model.cartModel import Cart, CartForm, CartRead
+from src.api.models.cart_model.cartModel import (
+    Cart,
+    CartForm,
+    CartRead,
+    CartAndItemsRead,
+    CartShopRead,
+)
 from src.api.models.cart_model.cartItemModel import CartItem, CartItemForm, CartItemRead
+from src.api.models.shop_model.shopModel import ShopRead
 from src.api.models.userModel import User
 from src.api.models.baseModel import TimeStampReadModel, TimeStampedModel
 
@@ -27,7 +35,7 @@ def get_shop_variant(session: GetSession, variant_id: int, shop_id: int):
     ).first()
 
 
-@router.post("/create", response_model=CartRead)
+@router.post("/create", response_model=CartAndItemsRead)
 async def create_cart(
     current_user: requireSignin,
     db: GetSession,
@@ -103,7 +111,7 @@ async def create_cart(
     return api_response(
         200,
         "Cart updated successfully",
-        CartRead.model_validate(cart),
+        CartAndItemsRead.model_validate(cart),
     )
 
 
@@ -137,19 +145,39 @@ def delete_cart(
     )
 
 
-@router.get("/read/{id}", response_model=list[CartRead])
+@router.get("/read/{id}", response_model=CartAndItemsRead)
 def read(
     id: int,
     user: requireSignin,
     session: GetSession,
 ):
-
     query = session.exec(
-        select(Cart).where(Cart.user_id == user["id"], Cart.id == id)
+        select(Cart)
+        .options(
+            selectinload(Cart.items).selectinload(CartItem.variant),
+        )
+        .where(Cart.user_id == user["id"], Cart.id == id)
     ).first()
     raiseExceptions((query, 404, "Cart not found"))
     return api_response(
         200,
         "Cart Found",
-        CartRead.model_validate(query),
+        CartAndItemsRead.model_validate(query),
+    )
+
+
+@router.get("/list", response_model=list[CartShopRead])
+def list_carts(
+    user: requireSignin,
+    session: GetSession,
+    query_params: ListQueryParams,
+):
+    query_params = vars(query_params)
+    searchFields = ["status"]
+    return listRecords(
+        query_params=query_params,
+        searchFields=searchFields,
+        Model=Cart,
+        Schema=CartShopRead,
+        customFilters=[["user_id", user["id"]]],
     )

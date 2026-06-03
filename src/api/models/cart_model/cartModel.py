@@ -7,6 +7,7 @@ from sqlmodel import Field, Relationship, SQLModel, UniqueConstraint
 from src.api.models.cart_model.cartItemModel import CartItemRead
 from src.api.models.utils import clean_json, to_int
 from src.api.models.baseModel import TimeStampReadModel, TimeStampedModel
+from src.api.models.shop_model.shopModel import ShopRead
 
 if TYPE_CHECKING:
     from src.api.models import User, Shop
@@ -64,8 +65,15 @@ class CartRead(SQLModel, TimeStampReadModel):
     status: str
 
 
-class CartAndItems(CartRead):
+class CartAndItemsRead(CartRead):
     items: List[CartItemRead] = []
+
+
+class CartShopRead(CartAndItemsRead):
+    shop: Optional[ShopRead] = None
+
+    class Config:
+        from_attributes = True
 
 
 class CartForm:
