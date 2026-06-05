@@ -4,12 +4,11 @@ from fastapi import Form
 from sqlalchemy import Column, JSON, String, text
 from sqlmodel import Field, Relationship, SQLModel
 
-from src.api.models.order_model.orderItemModel import OrderItemRead
-from src.api.models.utils import clean, clean_json, to_float, to_int
+from src.api.models.utils import clean, clean_json, to_int
 from src.api.models.baseModel import TimeStampReadModel, TimeStampedModel
 
 if TYPE_CHECKING:
-    from src.api.models import User, Shop, OrderItem
+    from src.api.models import User, Shop
 
 
 class Order(TimeStampedModel, table=True):
@@ -45,10 +44,26 @@ class Order(TimeStampedModel, table=True):
     # Address (snapshot)
     shipping_address: Optional[dict] = Field(default=None, sa_column=Column(JSON))
 
+    # Item snapshots
+    items: List[dict] = Field(
+        default_factory=list,
+        sa_column=Column(JSON, nullable=False, server_default=text("'[]'::json")),
+    )
+
     # Relationships
-    items: List["OrderItem"] = Relationship(back_populates="order")
     user: "User" = Relationship()
     shop: "Shop" = Relationship()
+
+
+class OrderItemSnapshotRead(SQLModel):
+    product_id: Optional[int] = None
+    product_variant_id: Optional[int] = None
+    product_name: str
+    variant_attributes: Optional[dict] = None
+    price: float
+    quantity: int
+    image: Optional[dict] = None
+    line_total: float
 
 
 class OrderRead(SQLModel, TimeStampReadModel):
@@ -62,7 +77,7 @@ class OrderRead(SQLModel, TimeStampReadModel):
     status: str
     payment_status: str
     shipping_address: Optional[dict] = None
-    items: List[OrderItemRead] = []
+    items: List[OrderItemSnapshotRead] = Field(default_factory=list)
 
 
 class OrderForm:
@@ -70,20 +85,21 @@ class OrderForm:
         self,
         user_id: Optional[int] = Form(None),
         shop_id: Optional[int] = Form(22),
+        cart_id: Optional[int] = Form(None),
         status: Optional[str] = Form("pending"),
         payment_status: Optional[str] = Form("pending"),
         shipping_address: Optional[str] = Form(
-            {
-                "city": "Rawalpindi",
-                "state": "Punjab",
-                "Address": "house# 123, street# 3, British Colony",
-                "phone": "923123456789",
-            }
+            '{"city": "Rawalpindi", "state": "Punjab", "Address": "house# 123, street# 3, British Colony", "phone": "923123456789"}'
         ),
-        items: Optional[str] = Form([{"product_variant_id": 0, "quantity": 1}]),
+        items: Optional[str] = Form(
+            None,
+            description="JSON array of order items.",
+            examples=['[{"product_variant_id": 1, "quantity": 2}]'],
+        ),
     ):
         self.user_id = to_int(user_id)
         self.shop_id = to_int(shop_id)
+        self.cart_id = to_int(cart_id)
         self.status = clean(status) or "pending"
         self.payment_status = clean(payment_status) or "pending"
         self.shipping_address = (

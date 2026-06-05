@@ -18,7 +18,6 @@ from src.api.models.product_model.ProductVariantModel import ProductVariant
 
 # order
 from src.api.models.order_model.orderModel import Order
-from src.api.models.order_model.orderItemModel import OrderItem
 
 # cart
 from src.api.models.cart_model.cartModel import Cart
