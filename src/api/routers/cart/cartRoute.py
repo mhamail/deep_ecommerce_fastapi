@@ -1,11 +1,10 @@
 from fastapi import APIRouter, Depends, UploadFile
 from sqlalchemy.orm import selectinload
-from sqlmodel import exists, select
+from sqlmodel import select
 from src.api.models.product_model.ProductVariantModel import ProductVariant
 from src.api.models.product_model.productModel import Product
-from src.api.core.operation.media import uploadSingleMedia
-from src.api.core.utility import uniqueSlugify
-from src.api.core.operation import listRecords, serialize_obj, updateOp
+
+from src.api.core.operation import listRecords
 from src.api.core.response import api_response, raiseExceptions
 from src.api.core.dependencies import (
     GetSession,

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 from sqlalchemy.orm import selectinload
 from sqlmodel import select
 
@@ -7,11 +7,11 @@ from src.api.core.dependencies import (
     ListQueryParams,
     requireDefaultShop,
 )
-from src.api.core.operation import listRecords, serialize_obj
+from src.api.core.operation import listRecords
 from src.api.core.response import api_response, raiseExceptions
 from src.api.models.cart_model.cartItemModel import CartItem
 from src.api.models.cart_model.cartModel import Cart
-from src.api.models.order_model.orderModel import Order, OrderForm, OrderRead
+from src.api.models.order_model.orderModel import Order, OrderCreate, OrderRead
 from src.api.models.product_model.ProductVariantModel import ProductVariant
 from src.api.models.product_model.productModel import Product
 
@@ -39,21 +39,35 @@ def get_user_cart(session: GetSession, cart_id: int, user_id: int):
     ).first()
 
 
+def get_cart_item(session: GetSession, cart_item_id: int):
+    return session.exec(
+        select(CartItem)
+        .options(
+            selectinload(CartItem.cart),
+            selectinload(CartItem.variant).selectinload(ProductVariant.product),
+        )
+        .where(CartItem.id == cart_item_id)
+    ).first()
+
+
 def build_order_item_snapshot(
     data: dict,
     variant: ProductVariant | None = None,
 ):
+    quantity = int(data.get("quantity") or 1)
     item_data = {
         "product_variant_id": data.get("product_variant_id"),
-        "quantity": data.get("quantity") or 1,
+        "quantity": quantity,
     }
 
     if variant:
         item_data["product_id"] = variant.product_id
         item_data["product_name"] = variant.product.name
-        item_data["variant_attributes"] = variant.attributes
+        item_data["variant_attributes"] = (
+            data.get("variant_attributes") or variant.attributes
+        )
         item_data["price"] = variant.discount_price or variant.price or 0
-        item_data["image"] = variant.image
+        item_data["image"] = data.get("image") or variant.image
     else:
         item_data["product_name"] = data.get("product_name")
         item_data["variant_attributes"] = data.get("variant_attributes")
@@ -81,18 +95,67 @@ def remove_variant_stock(variant: ProductVariant, quantity: int):
     variant.is_in_stock = variant.stock > 0
 
 
+def require_manual_shipping_address(request: OrderCreate, data: dict):
+    shipping_address = data.get("shipping_address") or {}
+    user_name = (
+        request.user_name
+        or shipping_address.get("user_name")
+        or shipping_address.get("name")
+    )
+    phone = request.phone or shipping_address.get("phone")
+    address = (
+        request.address
+        or shipping_address.get("address")
+        or shipping_address.get("Address")
+    )
+
+    raiseExceptions((user_name, 400, "User name is required for manual order"))
+    raiseExceptions((phone, 400, "Phone is required for manual order"))
+    raiseExceptions((address, 400, "Address is required for manual order"))
+
+    data["shipping_address"] = {
+        **shipping_address,
+        "user_name": user_name,
+        "phone": phone,
+        "address": address,
+    }
+
+
 @router.post("/create", response_model=OrderRead)
 async def create_order(
     session: GetSession,
-    request: OrderForm = Depends(),
+    request: OrderCreate,
 ):
-    data = serialize_obj(request)
+    data = request.model_dump(exclude={"cartitemid"})
     cart_id = data.pop("cart_id", None)
+    cart_item_id = data.pop("cart_item_id", None) or request.cartitemid
+    product_variant_id = data.pop("product_variant_id", None)
+    quantity = data.pop("quantity", None) or 1
+    data.pop("user_name", None)
+    data.pop("phone", None)
+    data.pop("address", None)
     items_data = data.pop("items", []) or []
     user_id = request.user_id or None
     cart = None
+    cart_item = None
 
-    if cart_id:
+    if cart_item_id:
+        cart_item = get_cart_item(session, cart_item_id)
+        raiseExceptions((cart_item, 404, "Cart item not found"))
+        raiseExceptions((cart_item.cart, 404, "Cart not found"))
+
+        cart = cart_item.cart
+        user_id = cart.user_id
+        shop_id = cart.shop_id
+        items_data = [
+            {
+                "product_variant_id": cart_item.product_variant_id,
+                "quantity": cart_item.quantity,
+                "variant_attributes": cart_item.variant_attributes,
+                "image": cart_item.image,
+            }
+        ]
+    elif cart_id:
         raiseExceptions((user_id, 400, "User ID is required for cart order"))
         cart = get_user_cart(session, cart_id, user_id)
         raiseExceptions((cart, 404, "Cart not found"))
@@ -110,6 +173,11 @@ async def create_order(
         ]
     else:
         shop_id = request.shop_id
+        if product_variant_id and not items_data:
+            items_data = [
+                {"product_variant_id": product_variant_id, "quantity": quantity}
+            ]
+        require_manual_shipping_address(request, data)
 
     raiseExceptions((shop_id, 400, "Shop ID is required"))
     raiseExceptions((items_data, 400, "Order items are required"))
@@ -139,7 +207,18 @@ async def create_order(
     order = Order(**data)
     session.add(order)
 
-    if cart:
+    if cart_item:
+        remaining_item = session.exec(
+            select(CartItem).where(
+                CartItem.cart_id == cart.id,
+                CartItem.id != cart_item.id,
+            )
+        ).first()
+        if remaining_item:
+            session.delete(cart_item)
+        else:
+            session.delete(cart)
+    elif cart:
         session.delete(cart)
 
     session.commit()

@@ -1,10 +1,8 @@
 from typing import TYPE_CHECKING, Optional, List
 
-from fastapi import Form
 from sqlalchemy import Column, JSON, String, text
 from sqlmodel import Field, Relationship, SQLModel
 
-from src.api.models.utils import clean, clean_json, to_int
 from src.api.models.baseModel import TimeStampReadModel, TimeStampedModel
 
 if TYPE_CHECKING:
@@ -47,7 +45,7 @@ class Order(TimeStampedModel, table=True):
     # Item snapshots
     items: List[dict] = Field(
         default_factory=list,
-        sa_column=Column(JSON, nullable=False, server_default=text("'[]'::json")),
+        sa_column=Column(JSON, nullable=False),
     )
 
     # Relationships
@@ -80,29 +78,23 @@ class OrderRead(SQLModel, TimeStampReadModel):
     items: List[OrderItemSnapshotRead] = Field(default_factory=list)
 
 
-class OrderForm:
-    def __init__(
-        self,
-        user_id: Optional[int] = Form(None),
-        shop_id: Optional[int] = Form(22),
-        cart_id: Optional[int] = Form(None),
-        status: Optional[str] = Form("pending"),
-        payment_status: Optional[str] = Form("pending"),
-        shipping_address: Optional[str] = Form(
-            '{"city": "Rawalpindi", "state": "Punjab", "Address": "house# 123, street# 3, British Colony", "phone": "923123456789"}'
-        ),
-        items: Optional[str] = Form(
-            None,
-            description="JSON array of order items.",
-            examples=['[{"product_variant_id": 1, "quantity": 2}]'],
-        ),
-    ):
-        self.user_id = to_int(user_id)
-        self.shop_id = to_int(shop_id)
-        self.cart_id = to_int(cart_id)
-        self.status = clean(status) or "pending"
-        self.payment_status = clean(payment_status) or "pending"
-        self.shipping_address = (
-            clean_json(shipping_address) if shipping_address is not None else None
-        )
-        self.items = clean_json(items) if items is not None else []
+class OrderCreate(SQLModel):
+    user_id: Optional[int] = None
+    shop_id: Optional[int] = 22
+    cart_id: Optional[int] = None
+    cart_item_id: Optional[int] = None
+    cartitemid: Optional[int] = Field(default=None, exclude=True)
+    product_variant_id: Optional[int] = None
+    quantity: Optional[int] = 1
+    user_name: Optional[str] = None
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    discount: Optional[float] = 0
+    status: Optional[str] = "pending"
+    payment_status: Optional[str] = "pending"
+    shipping_address: Optional[dict] = None
+    items: Optional[List[dict]] = Field(
+        default_factory=list,
+        description="Array of order items.",
+        schema_extra={"examples": [[{"product_variant_id": 1, "quantity": 1}]]},
+    )
