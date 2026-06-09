@@ -80,32 +80,29 @@ class OrderRead(SQLModel, TimeStampReadModel):
 
 class OrderCreate(SQLModel):
     user_id: Optional[int] = None
-    shop_id: Optional[int] = None
 
-    # --- Cart-based order ---
-    cart_id: Optional[int] = None
+    # ── Cart-based order ──────────────────────────────────────────────────────
+    # Pass cart item IDs — shipping address auto-fetched from user's default address.
     cart_item_ids: Optional[List[int]] = Field(
         default=None,
-        description="Specific cart item IDs to order. If omitted with cart_id, all cart items are ordered.",
-        examples=[[1, 2, 3]],
+        description="Cart item IDs to order. Shipping address is auto-populated from user's default address.",
+        # examples=[[1, 2, 3]],
     )
 
-    # --- Manual single-item order ---
-    product_variant_id: Optional[int] = None
-    quantity: Optional[int] = 1
-
-    # --- Shared fields ---
+    # ── Manual order ──────────────────────────────────────────────────────────
+    # shop_id + items + delivery info required.
+    shop_id: Optional[int] = None
+    items: Optional[List[dict]] = Field(
+        default_factory=list,
+        description="[{product_variant_id, quantity}]",
+        # examples=[[{"product_variant_id": 1, "quantity": 2}]],
+    )
     user_name: Optional[str] = None
     phone: Optional[str] = None
     address: Optional[str] = None
+
+    # ── Shared ────────────────────────────────────────────────────────────────
     discount: Optional[float] = 0
     status: Optional[str] = "pending"
     payment_status: Optional[str] = "pending"
     shipping_address: Optional[dict] = None
-
-    # --- Manual multi-item order ---
-    items: Optional[List[dict]] = Field(
-        default_factory=list,
-        description="Manual order items: [{product_variant_id, quantity, price?, ...}]",
-        examples=[[{"product_variant_id": 1, "quantity": 2}]],
-    )
