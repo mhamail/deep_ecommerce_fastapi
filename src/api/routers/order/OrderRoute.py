@@ -39,17 +39,6 @@ def get_user_cart(session: GetSession, cart_id: int, user_id: int):
     ).first()
 
 
-def get_cart_item(session: GetSession, cart_item_id: int):
-    return session.exec(
-        select(CartItem)
-        .options(
-            selectinload(CartItem.cart),
-            selectinload(CartItem.variant).selectinload(ProductVariant.product),
-        )
-        .where(CartItem.id == cart_item_id)
-    ).first()
-
-
 def build_order_item_snapshot(
     data: dict,
     variant: ProductVariant | None = None,
@@ -126,9 +115,11 @@ async def create_order(
     session: GetSession,
     request: OrderCreate,
 ):
-    data = request.model_dump(exclude={"cartitemid"})
+    data = request.model_dump()
+
+    # Pop fields that are not Order columns
     cart_id = data.pop("cart_id", None)
-    cart_item_id = data.pop("cart_item_id", None) or request.cartitemid
+    cart_item_ids = data.pop("cart_item_ids", None) or []
     product_variant_id = data.pop("product_variant_id", None)
     quantity = data.pop("quantity", None) or 1
     data.pop("user_name", None)
@@ -137,31 +128,28 @@ async def create_order(
     items_data = data.pop("items", []) or []
     user_id = request.user_id or None
     cart = None
-    cart_item = None
 
-    if cart_item_id:
-        cart_item = get_cart_item(session, cart_item_id)
-        raiseExceptions((cart_item, 404, "Cart item not found"))
-        raiseExceptions((cart_item.cart, 404, "Cart not found"))
-
-        cart = cart_item.cart
-        user_id = cart.user_id
-        shop_id = cart.shop_id
-        items_data = [
-            {
-                "product_variant_id": cart_item.product_variant_id,
-                "quantity": cart_item.quantity,
-                "variant_attributes": cart_item.variant_attributes,
-                "image": cart_item.image,
-            }
-        ]
-    elif cart_id:
-        raiseExceptions((user_id, 400, "User ID is required for cart order"))
+    # ─────────────────────────────────────────────
+    # MODE 1 & 2 — Cart order (full or selective)
+    # ─────────────────────────────────────────────
+    if cart_id:
+        raiseExceptions((user_id, 400, "user_id is required for cart order"))
         cart = get_user_cart(session, cart_id, user_id)
         raiseExceptions((cart, 404, "Cart not found"))
         raiseExceptions((cart.items, 400, "Cart is empty"))
 
         shop_id = cart.shop_id
+        user_id = cart.user_id
+
+        if cart_item_ids:
+            # Selective checkout — only the requested items
+            id_set = set(cart_item_ids)
+            selected = [item for item in cart.items if item.id in id_set]
+            raiseExceptions((selected, 400, "None of the provided cart_item_ids were found in this cart"))
+        else:
+            # Full cart checkout
+            selected = list(cart.items)
+
         items_data = [
             {
                 "product_variant_id": item.product_variant_id,
@@ -169,22 +157,28 @@ async def create_order(
                 "variant_attributes": item.variant_attributes,
                 "image": item.image,
             }
-            for item in cart.items
+            for item in selected
         ]
+
+    # ─────────────────────────────────────────────
+    # MODE 3 & 4 — Manual order
+    # ─────────────────────────────────────────────
     else:
         shop_id = request.shop_id
+        # Single variant shorthand → normalise into items list
         if product_variant_id and not items_data:
-            items_data = [
-                {"product_variant_id": product_variant_id, "quantity": quantity}
-            ]
+            items_data = [{"product_variant_id": product_variant_id, "quantity": quantity}]
         require_manual_shipping_address(request, data)
 
-    raiseExceptions((shop_id, 400, "Shop ID is required"))
-    raiseExceptions((items_data, 400, "Order items are required"))
+    raiseExceptions((shop_id, 400, "shop_id is required"))
+    raiseExceptions((items_data, 400, "Order must have at least one item"))
 
     data["user_id"] = user_id
     data["shop_id"] = shop_id
 
+    # ─────────────────────────────────────────────
+    # Build order item snapshots & deduct stock
+    # ─────────────────────────────────────────────
     subtotal = 0
     order_items = []
     for item_data in items_data:
@@ -192,7 +186,7 @@ async def create_order(
         variant_id = item_data.get("product_variant_id")
         if variant_id:
             variant = get_shop_variant(session, variant_id, shop_id)
-            raiseExceptions((variant, 404, "Product Variant not found"))
+            raiseExceptions((variant, 404, f"Product variant {variant_id} not found"))
             remove_variant_stock(variant, item_data.get("quantity") or 1)
             session.add(variant)
 
@@ -207,19 +201,26 @@ async def create_order(
     order = Order(**data)
     session.add(order)
 
-    if cart_item:
-        remaining_item = session.exec(
-            select(CartItem).where(
-                CartItem.cart_id == cart.id,
-                CartItem.id != cart_item.id,
-            )
-        ).first()
-        if remaining_item:
-            session.delete(cart_item)
+    # ─────────────────────────────────────────────
+    # Cart cleanup
+    # ─────────────────────────────────────────────
+    if cart:
+        if cart_item_ids:
+            # Partial checkout — delete only the ordered items
+            ordered_ids = set(cart_item_ids)
+            for item in cart.items:
+                if item.id in ordered_ids:
+                    session.delete(item)
+            session.flush()
+            # If cart is now empty, remove it too
+            remaining = session.exec(
+                select(CartItem).where(CartItem.cart_id == cart.id)
+            ).first()
+            if not remaining:
+                session.delete(cart)
         else:
+            # Full checkout — cascade handles the items
             session.delete(cart)
-    elif cart:
-        session.delete(cart)
 
     session.commit()
     session.refresh(order)

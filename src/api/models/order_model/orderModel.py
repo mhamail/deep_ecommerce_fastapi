@@ -80,12 +80,21 @@ class OrderRead(SQLModel, TimeStampReadModel):
 
 class OrderCreate(SQLModel):
     user_id: Optional[int] = None
-    shop_id: Optional[int] = 22
+    shop_id: Optional[int] = None
+
+    # --- Cart-based order ---
     cart_id: Optional[int] = None
-    cart_item_id: Optional[int] = None
-    cartitemid: Optional[int] = Field(default=None, exclude=True)
+    cart_item_ids: Optional[List[int]] = Field(
+        default=None,
+        description="Specific cart item IDs to order. If omitted with cart_id, all cart items are ordered.",
+        examples=[[1, 2, 3]],
+    )
+
+    # --- Manual single-item order ---
     product_variant_id: Optional[int] = None
     quantity: Optional[int] = 1
+
+    # --- Shared fields ---
     user_name: Optional[str] = None
     phone: Optional[str] = None
     address: Optional[str] = None
@@ -93,8 +102,10 @@ class OrderCreate(SQLModel):
     status: Optional[str] = "pending"
     payment_status: Optional[str] = "pending"
     shipping_address: Optional[dict] = None
+
+    # --- Manual multi-item order ---
     items: Optional[List[dict]] = Field(
         default_factory=list,
-        description="Array of order items.",
-        schema_extra={"examples": [[{"product_variant_id": 1, "quantity": 1}]]},
+        description="Manual order items: [{product_variant_id, quantity, price?, ...}]",
+        examples=[[{"product_variant_id": 1, "quantity": 2}]],
     )
