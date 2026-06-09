@@ -22,3 +22,6 @@ from src.api.models.order_model.orderModel import Order
 # cart
 from src.api.models.cart_model.cartModel import Cart
 from src.api.models.cart_model.cartItemModel import CartItem
+
+# address
+from src.api.models.addressModel import UserAddress

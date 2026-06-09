@@ -11,6 +11,7 @@ from src.api.models.baseModel import TimeStampReadModel, TimeStampedModel
 from pydantic import computed_field
 
 if TYPE_CHECKING:
+    from src.api.models.addressModel import UserAddress
     from api.models.product_model.productModel import Product
     from src.api.models.shop_model.ShopChildModel import ShopUser
     from src.api.models.role_model.userRoleModel import UserRole
@@ -92,6 +93,7 @@ class User(
     )
     shop_memberships: list["ShopUser"] = Relationship(back_populates="user")
     created_products: list["Product"] = Relationship(back_populates="creator")
+    addresses: list["UserAddress"] = Relationship(back_populates="user")
 
     # @property
     # def roles(self) -> list["Role"]:

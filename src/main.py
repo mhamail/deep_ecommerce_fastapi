@@ -27,7 +27,7 @@ from src.api.routers.auth import (
 )
 from src.api.routers.cart import cartRoute, cartItemRoute
 
-from src.api.routers import mediaRoute
+from src.api.routers import addressRoute, mediaRoute
 
 
 @asynccontextmanager
@@ -139,6 +139,8 @@ app.include_router(authRoute.router)
 app.include_router(userRoute.router)
 app.include_router(verifymeRoute.router)
 app.include_router(mediaRoute.router)
+# relate
+app.include_router(addressRoute.router)
 # role
 app.include_router(roleRoute.router)
 app.include_router(userRoleRoute.router)
