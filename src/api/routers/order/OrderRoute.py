@@ -22,12 +22,13 @@ router = APIRouter(prefix="/order", tags=["Order"])
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def get_shop_variant(session: GetSession, variant_id: int, shop_id: int):
+
+def get_product_variant(session: GetSession, variant_id: int):
     return session.exec(
         select(ProductVariant)
         .options(selectinload(ProductVariant.product))
         .join(Product)
-        .where(ProductVariant.id == variant_id, Product.shop_id == shop_id)
+        .where(ProductVariant.id == variant_id)
     ).first()
 
 
@@ -50,7 +51,6 @@ def get_cart_items_by_ids(session: GetSession, cart_item_ids: list[int], user_id
 
 def get_default_shipping_address(session: GetSession, user_id: int) -> Optional[dict]:
     """Build a shipping_address dict from the user's profile + default address."""
-    user = session.get(User, user_id)
     addr = session.exec(
         select(UserAddress).where(
             UserAddress.user_id == user_id,
@@ -58,27 +58,7 @@ def get_default_shipping_address(session: GetSession, user_id: int) -> Optional[
         )
     ).first()
 
-    shipping: dict = {}
-
-    if user:
-        shipping["user_name"] = user.full_name or user.email
-        if user.phone:
-            shipping["phone"] = user.phone
-
-    if addr:
-        detail = addr.address
-        shipping["address"] = detail.details
-        shipping["city"] = detail.city
-        if detail.state:
-            shipping["state"] = detail.state
-        if detail.postal_code:
-            shipping["postal_code"] = detail.postal_code
-        if detail.country:
-            shipping["country"] = detail.country
-        if addr.location:
-            shipping["location"] = {"lat": addr.location.lat, "lng": addr.location.lng}
-
-    return shipping or None
+    return addr
 
 
 def build_order_item_snapshot(data: dict, variant: ProductVariant | None = None):
@@ -91,7 +71,9 @@ def build_order_item_snapshot(data: dict, variant: ProductVariant | None = None)
     if variant:
         item_data["product_id"] = variant.product_id
         item_data["product_name"] = variant.product.name
-        item_data["variant_attributes"] = data.get("variant_attributes") or variant.attributes
+        item_data["variant_attributes"] = (
+            data.get("variant_attributes") or variant.attributes
+        )
         item_data["price"] = variant.discount_price or variant.price or 0
         item_data["image"] = data.get("image") or variant.image
     else:
@@ -121,35 +103,26 @@ def remove_variant_stock(variant: ProductVariant, quantity: int):
     variant.is_in_stock = variant.stock > 0
 
 
-def require_manual_shipping_address(request: OrderCreate, data: dict):
+def require_manual_shipping_address(data: dict):
     shipping_address = data.get("shipping_address") or {}
-    user_name = (
-        request.user_name
-        or shipping_address.get("user_name")
-        or shipping_address.get("name")
-    )
-    phone = request.phone or shipping_address.get("phone")
-    address = (
-        request.address
-        or shipping_address.get("address")
-        or shipping_address.get("Address")
-    )
-
-    raiseExceptions((user_name, 400, "user_name is required for manual order"))
-    raiseExceptions((phone, 400, "phone is required for manual order"))
-    raiseExceptions((address, 400, "address is required for manual order"))
 
     data["shipping_address"] = {
         **shipping_address,
-        "user_name": user_name,
-        "phone": phone,
-        "address": address,
     }
+
+    raiseExceptions(
+        (
+            data["shipping_address"].get("detail"),
+            400,
+            "Shipping detail is required for manual orders",
+        )
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Routes
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 @router.post("/create", response_model=OrderRead)
 async def create_order(session: GetSession, request: OrderCreate):
@@ -157,11 +130,12 @@ async def create_order(session: GetSession, request: OrderCreate):
 
     # Strip fields that are not Order table columns
     cart_item_ids = data.pop("cart_item_ids", None) or []
-    items_data = data.pop("items", []) or []
+    user_id = request.user_id or None
+    # manuals
+    manual_items_data = data.pop("items", []) or []
     data.pop("user_name", None)
     data.pop("phone", None)
     data.pop("address", None)
-    user_id = request.user_id or None
 
     # ─────────────────────────────────────────────
     # MODE 1 — Cart-based order
@@ -174,13 +148,6 @@ async def create_order(session: GetSession, request: OrderCreate):
         cart_items = get_cart_items_by_ids(session, cart_item_ids, user_id)
         raiseExceptions((cart_items, 404, "No valid cart items found for this user"))
 
-        # All items must belong to the same shop
-        shop_ids = {item.cart.shop_id for item in cart_items}
-        raiseExceptions(
-            (len(shop_ids) == 1, 400, "All cart items must belong to the same shop")
-        )
-        shop_id = next(iter(shop_ids))
-
         # Auto-populate shipping from user's default address (skip if already provided)
         if not data.get("shipping_address"):
             data["shipping_address"] = get_default_shipping_address(session, user_id)
@@ -188,27 +155,46 @@ async def create_order(session: GetSession, request: OrderCreate):
         items_data = [
             {
                 "product_variant_id": item.product_variant_id,
-                "quantity": item.quantity,
+                "product_name": item.product_variant.product.name,
                 "variant_attributes": item.variant_attributes,
+                "shop_id": item.cart.shop_id,
                 "image": item.image,
+                "quantity": item.quantity,
+                "price": item.price,
             }
             for item in cart_items
         ]
 
     # ─────────────────────────────────────────────
     # MODE 2 — Manual order
-    # Send: shop_id + items[{product_variant_id, quantity}] + user_name/phone/address
     # ─────────────────────────────────────────────
     else:
-        shop_id = request.shop_id
-        raiseExceptions((shop_id, 400, "shop_id is required for manual order"))
-        raiseExceptions((items_data, 400, "items are required for manual order"))
-        require_manual_shipping_address(request, data)
+        raiseExceptions((manual_items_data, 400, "items are required for manual order"))
+        require_manual_shipping_address(data)
+        items_data = []
+        for product_variant in manual_items_data:
+            variant = None
+            variant_id = product_variant.get("product_variant_id")
+            if variant_id:
+                variant = get_product_variant(session, variant_id)
+                raiseExceptions(
+                    (variant, 404, f"Product variant {variant_id} not found")
+                )
+            items_data.append(
+                {
+                    "product_variant_id": product_variant.get("product_variant_id"),
+                    "quantity": product_variant.get("quantity"),
+                    "product_name": variant.product.name,
+                    "variant_attributes": variant.get("variant_attributes"),
+                    "shop_id": product_variant.get("shop_id"),
+                    "image": variant.get("image"),
+                    "price": variant.get("discount_price") or variant.get("price"),
+                }
+            )
 
     raiseExceptions((items_data, 400, "Order must have at least one item"))
 
     data["user_id"] = user_id
-    data["shop_id"] = shop_id
 
     # ─────────────────────────────────────────────
     # Build item snapshots & deduct stock
@@ -216,11 +202,8 @@ async def create_order(session: GetSession, request: OrderCreate):
     subtotal = 0
     order_items = []
     for item_data in items_data:
-        variant = None
         variant_id = item_data.get("product_variant_id")
         if variant_id:
-            variant = get_shop_variant(session, variant_id, shop_id)
-            raiseExceptions((variant, 404, f"Product variant {variant_id} not found in this shop"))
             remove_variant_stock(variant, item_data.get("quantity") or 1)
             session.add(variant)
 
@@ -258,7 +241,9 @@ async def create_order(session: GetSession, request: OrderCreate):
     session.commit()
     session.refresh(order)
 
-    return api_response(201, "Order Created Successfully", OrderRead.model_validate(order))
+    return api_response(
+        201, "Order Created Successfully", OrderRead.model_validate(order)
+    )
 
 
 @router.get("/read/{id}", response_model=OrderRead)

@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, Optional, List
 from sqlalchemy import Column, JSON, String, text
 from sqlmodel import Field, Relationship, SQLModel
 
+from src.api.models.addressModel import AddressDetail
 from src.api.models.baseModel import TimeStampReadModel, TimeStampedModel
 
 if TYPE_CHECKING:
@@ -16,7 +17,6 @@ class Order(TimeStampedModel, table=True):
 
     # Relations
     user_id: Optional[int] = Field(default=None, foreign_key="users.id", index=True)
-    shop_id: Optional[int] = Field(default=None, foreign_key="shops.id", index=True)
 
     # Order Info
     order_number: str = Field(
@@ -50,7 +50,6 @@ class Order(TimeStampedModel, table=True):
 
     # Relationships
     user: "User" = Relationship()
-    shop: "Shop" = Relationship()
 
 
 class OrderItemSnapshotRead(SQLModel):
@@ -97,12 +96,9 @@ class OrderCreate(SQLModel):
         description="[{product_variant_id, quantity}]",
         # examples=[[{"product_variant_id": 1, "quantity": 2}]],
     )
-    user_name: Optional[str] = None
-    phone: Optional[str] = None
-    address: Optional[str] = None
 
     # ── Shared ────────────────────────────────────────────────────────────────
     discount: Optional[float] = 0
     status: Optional[str] = "pending"
     payment_status: Optional[str] = "pending"
-    shipping_address: Optional[dict] = None
+    shipping_address: Optional[AddressDetail] = None

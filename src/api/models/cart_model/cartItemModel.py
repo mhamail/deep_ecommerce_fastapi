@@ -30,7 +30,7 @@ class CartItem(TimeStampedModel, table=True):
     variant_attributes: Optional[dict] = Field(default=None, sa_column=Column(JSON))
 
     # Optional media snapshot
-    image: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    # image: Optional[dict] = Field(default=None, sa_column=Column(JSON))
 
     # Relationships
     cart: "Cart" = Relationship(back_populates="items")
@@ -47,6 +47,20 @@ class CartItem(TimeStampedModel, table=True):
 
         return self.variant.price
 
+    @property
+    def image(self) -> Optional[MediaRead]:
+        if not self.variant:
+            return None
+
+        return self.variant.image
+
+    @property
+    def product_name(self) -> Optional[str]:
+        if not self.variant:
+            return None
+
+        return self.variant.product.name
+
 
 class CartItemRead(SQLModel, TimeStampReadModel):
     id: int
@@ -57,6 +71,7 @@ class CartItemRead(SQLModel, TimeStampReadModel):
     quantity: int
     variant_attributes: Optional[dict] = None
     image: Optional[MediaRead] = None
+    product_name: Optional[str] = None
 
 
 class CartItemForm:
