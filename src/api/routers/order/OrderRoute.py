@@ -2,7 +2,7 @@ from typing import Optional
 
 from fastapi import APIRouter
 from sqlalchemy.orm import selectinload
-from sqlmodel import select
+from sqlmodel import delete, select
 
 from src.api.core.dependencies import GetSession, ListQueryParams, requireDefaultShop
 from src.api.core.operation import listRecords
@@ -48,47 +48,6 @@ def get_cart_items_by_ids(session: GetSession, cart_item_ids: list[int], user_id
     ).all()
 
 
-def get_default_shipping_address(session: GetSession, user_id: int) -> Optional[dict]:
-    """Build a shipping_address dict from the user's profile + default address."""
-    addr = session.exec(
-        select(UserAddress).where(
-            UserAddress.user_id == user_id,
-            UserAddress.default == 1,
-        )
-    ).first()
-
-    return addr
-
-
-def build_order_item_snapshot(data: dict, variant: ProductVariant | None = None):
-    quantity = int(data.get("quantity") or 1)
-    item_data = {
-        "product_variant_id": data.get("product_variant_id"),
-        "quantity": quantity,
-    }
-
-    if variant:
-        item_data["product_id"] = variant.product_id
-        item_data["product_name"] = variant.product.name
-        item_data["variant_attributes"] = (
-            data.get("variant_attributes") or variant.attributes
-        )
-        item_data["price"] = variant.discount_price or variant.price or 0
-        item_data["image"] = data.get("image") or variant.image
-    else:
-        item_data["product_name"] = data.get("product_name")
-        item_data["variant_attributes"] = data.get("variant_attributes")
-        item_data["price"] = data.get("price")
-        item_data["image"] = data.get("image")
-
-    raiseExceptions((item_data.get("product_name"), 400, "product_name is required"))
-    raiseExceptions((item_data["price"] is not None, 400, "price is required"))
-    raiseExceptions((item_data["quantity"] > 0, 400, "quantity must be greater than 0"))
-
-    item_data["line_total"] = item_data["price"] * item_data["quantity"]
-    return item_data
-
-
 def remove_variant_stock(variant: ProductVariant, quantity: int):
     raiseExceptions((quantity > 0, 400, "Quantity must be greater than 0"))
     raiseExceptions(
@@ -100,6 +59,25 @@ def remove_variant_stock(variant: ProductVariant, quantity: int):
     )
     variant.stock -= quantity
     variant.is_in_stock = variant.stock > 0
+
+
+def get_default_shipping_address(session: GetSession, user_id: int) -> Optional[dict]:
+    """Build a shipping_address dict from the user's profile + default address."""
+    addr = session.exec(
+        select(UserAddress).where(
+            UserAddress.user_id == user_id,
+            UserAddress.default == 1,
+        )
+    ).first()
+
+    raiseExceptions(
+        (
+            addr.address.get("details") and addr.address.get("phone"),
+            400,
+            "Shipping details/phone are required",
+        )
+    )
+    return addr.address
 
 
 def require_manual_shipping_address(data: dict):
@@ -116,6 +94,22 @@ def require_manual_shipping_address(data: dict):
             "Shipping details are required for manual orders",
         )
     )
+
+
+def destock_product_variants(session, items_data):
+    for item in items_data:
+        variant = item.pop("variant")  # remove before save
+
+        qty = item["quantity"]
+
+        if variant.stock < qty:
+            api_response(
+                400, f"Only {variant.stock} units available for {variant.product.name}"
+            )
+
+        variant.stock -= qty
+        variant.is_in_stock = variant.stock > 0
+        session.add(variant)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -139,6 +133,7 @@ async def create_order(session: GetSession, request: OrderCreate):
     # Address auto-fetched from user's default address
     # ─────────────────────────────────────────────
     items_data = []
+
     if cart_item_ids:
         raiseExceptions((user_id, 400, "user_id is required for cart order"))
 
@@ -146,11 +141,12 @@ async def create_order(session: GetSession, request: OrderCreate):
         raiseExceptions((cart_items, 404, "No valid cart items found for this user"))
 
         # Auto-populate shipping from user's default address (skip if already provided)
-        if not data.get("shipping_address"):
-            data["shipping_address"] = get_default_shipping_address(session, user_id)
+
+        data["shipping_address"] = get_default_shipping_address(session, user_id)
 
         items_data = [
             {
+                "variant": item.variant,
                 "id": item.id,
                 "product_variant_id": item.product_variant_id,
                 "product_name": item.product_name,
@@ -181,6 +177,7 @@ async def create_order(session: GetSession, request: OrderCreate):
                 )
                 items_data.append(
                     {
+                        "variant": variant,
                         "product_variant_id": variant.id,
                         "quantity": item.get("quantity", 1),
                         "product_name": variant.product.name,
@@ -192,28 +189,20 @@ async def create_order(session: GetSession, request: OrderCreate):
                     }
                 )
 
-    return api_response(200, "Items data built", items_data)
-
     raiseExceptions((items_data, 400, "Order must have at least one item"))
 
     data["user_id"] = user_id
-
     # ─────────────────────────────────────────────
-    # Build item snapshots & deduct stock
+    # deduct stock
+    # ─────────────────────────────────────────────
+    destock_product_variants(session, items_data)
+    # ─────────────────────────────────────────────
+    # Calculate totals
     # ─────────────────────────────────────────────
     subtotal = 0
-    order_items = []
-    for item_data in items_data:
-        variant_id = item_data.get("product_variant_id")
-        if variant_id:
-            remove_variant_stock(variant, item_data.get("quantity") or 1)
-            session.add(variant)
+    subtotal = sum(item["price"] * item["quantity"] for item in items_data)
 
-        order_item = build_order_item_snapshot(item_data, variant)
-        subtotal += order_item["line_total"]
-        order_items.append(order_item)
-
-    data["items"] = order_items
+    data["items"] = items_data
     data["subtotal"] = subtotal
     data["total"] = subtotal - (data.get("discount") or 0)
 

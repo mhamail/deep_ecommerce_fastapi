@@ -62,7 +62,6 @@ class OrderItemSnapshotRead(SQLModel):
     actual_price: Optional[float] = None
     quantity: int
     image: Optional[dict] = None
-    line_total: float
 
 
 class OrderRead(SQLModel, TimeStampReadModel):
