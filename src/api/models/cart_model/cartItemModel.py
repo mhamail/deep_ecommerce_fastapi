@@ -48,6 +48,13 @@ class CartItem(TimeStampedModel, table=True):
         return self.variant.price
 
     @property
+    def actual_price(self) -> Optional[float]:
+        if not self.variant:
+            return None
+
+        return self.variant.price
+
+    @property
     def image(self) -> Optional[MediaRead]:
         if not self.variant:
             return None
@@ -68,6 +75,7 @@ class CartItemRead(SQLModel, TimeStampReadModel):
     product_id: Optional[int] = None
     product_variant_id: Optional[int] = None
     price: Optional[float] = None
+    actual_price: Optional[float] = None
     quantity: int
     variant_attributes: Optional[dict] = None
     image: Optional[MediaRead] = None

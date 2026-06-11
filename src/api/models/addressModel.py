@@ -11,6 +11,8 @@ if TYPE_CHECKING:
 
 class AddressDetail(BaseModel):
     city: str = PydanticField(..., max_length=191)
+    phone: Optional[str] = PydanticField(default=None, max_length=20)
+    person_name: Optional[str] = PydanticField(default=None, max_length=191)
 
     state: Optional[str] = None
     postal_code: Optional[str] = None

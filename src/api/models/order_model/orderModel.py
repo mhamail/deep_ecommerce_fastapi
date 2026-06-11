@@ -54,10 +54,12 @@ class Order(TimeStampedModel, table=True):
 
 class OrderItemSnapshotRead(SQLModel):
     product_id: Optional[int] = None
+    shop_id: Optional[int] = None
     product_variant_id: Optional[int] = None
     product_name: str
     variant_attributes: Optional[dict] = None
     price: float
+    actual_price: Optional[float] = None
     quantity: int
     image: Optional[dict] = None
     line_total: float
@@ -66,7 +68,6 @@ class OrderItemSnapshotRead(SQLModel):
 class OrderRead(SQLModel, TimeStampReadModel):
     id: int
     user_id: Optional[int] = None
-    shop_id: Optional[int] = None
     order_number: str
     subtotal: float
     discount: float
@@ -89,8 +90,6 @@ class OrderCreate(SQLModel):
     )
 
     # ── Manual order ──────────────────────────────────────────────────────────
-    # shop_id + items + delivery info required.
-    shop_id: Optional[int] = None
     items: Optional[List[dict]] = Field(
         default_factory=list,
         description="[{product_variant_id, quantity}]",
@@ -101,4 +100,12 @@ class OrderCreate(SQLModel):
     discount: Optional[float] = 0
     status: Optional[str] = "pending"
     payment_status: Optional[str] = "pending"
-    shipping_address: Optional[AddressDetail] = None
+    shipping_address: Optional[AddressDetail] = {
+        "details": "",
+        "phone": "",
+        "person_name": "",
+        "city": "",
+        "state": "",
+        "postal_code": "",
+        "country": "",
+    }

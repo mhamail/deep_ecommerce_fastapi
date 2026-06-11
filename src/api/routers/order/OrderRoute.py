@@ -27,7 +27,6 @@ def get_product_variant(session: GetSession, variant_id: int):
     return session.exec(
         select(ProductVariant)
         .options(selectinload(ProductVariant.product))
-        .join(Product)
         .where(ProductVariant.id == variant_id)
     ).first()
 
@@ -112,9 +111,9 @@ def require_manual_shipping_address(data: dict):
 
     raiseExceptions(
         (
-            data["shipping_address"].get("detail"),
+            data["shipping_address"].get("details"),
             400,
-            "Shipping detail is required for manual orders",
+            "Shipping details are required for manual orders",
         )
     )
 
@@ -133,15 +132,13 @@ async def create_order(session: GetSession, request: OrderCreate):
     user_id = request.user_id or None
     # manuals
     manual_items_data = data.pop("items", []) or []
-    data.pop("user_name", None)
-    data.pop("phone", None)
-    data.pop("address", None)
 
     # ─────────────────────────────────────────────
     # MODE 1 — Cart-based order
     # Send: cart_item_ids + user_id
     # Address auto-fetched from user's default address
     # ─────────────────────────────────────────────
+    items_data = []
     if cart_item_ids:
         raiseExceptions((user_id, 400, "user_id is required for cart order"))
 
@@ -154,13 +151,15 @@ async def create_order(session: GetSession, request: OrderCreate):
 
         items_data = [
             {
+                "id": item.id,
                 "product_variant_id": item.product_variant_id,
-                "product_name": item.product_variant.product.name,
+                "product_name": item.product_name,
                 "variant_attributes": item.variant_attributes,
                 "shop_id": item.cart.shop_id,
                 "image": item.image,
                 "quantity": item.quantity,
                 "price": item.price,
+                "actual_price": item.actual_price,
             }
             for item in cart_items
         ]
@@ -171,26 +170,29 @@ async def create_order(session: GetSession, request: OrderCreate):
     else:
         raiseExceptions((manual_items_data, 400, "items are required for manual order"))
         require_manual_shipping_address(data)
-        items_data = []
-        for product_variant in manual_items_data:
+
+        for item in manual_items_data:
             variant = None
-            variant_id = product_variant.get("product_variant_id")
+            variant_id = item.get("product_variant_id")
             if variant_id:
                 variant = get_product_variant(session, variant_id)
                 raiseExceptions(
                     (variant, 404, f"Product variant {variant_id} not found")
                 )
-            items_data.append(
-                {
-                    "product_variant_id": product_variant.get("product_variant_id"),
-                    "quantity": product_variant.get("quantity"),
-                    "product_name": variant.product.name,
-                    "variant_attributes": variant.get("variant_attributes"),
-                    "shop_id": product_variant.get("shop_id"),
-                    "image": variant.get("image"),
-                    "price": variant.get("discount_price") or variant.get("price"),
-                }
-            )
+                items_data.append(
+                    {
+                        "product_variant_id": variant.id,
+                        "quantity": item.get("quantity", 1),
+                        "product_name": variant.product.name,
+                        "variant_attributes": variant.attributes,
+                        "shop_id": variant.product.shop_id,
+                        "image": variant.image,
+                        "price": variant.discount_price or variant.price,
+                        "actual_price": variant.price,
+                    }
+                )
+
+    return api_response(200, "Items data built", items_data)
 
     raiseExceptions((items_data, 400, "Order must have at least one item"))
 
