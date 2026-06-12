@@ -4,7 +4,12 @@ from fastapi import APIRouter
 from sqlalchemy.orm import selectinload
 from sqlmodel import delete, select
 
-from src.api.core.dependencies import GetSession, ListQueryParams, requireDefaultShop
+from src.api.core.dependencies import (
+    GetSession,
+    ListQueryParams,
+    requireDefaultShop,
+    requireSignin,
+)
 from src.api.core.operation import listRecords
 from src.api.core.response import api_response, raiseExceptions
 from src.api.models.addressModel import UserAddress
@@ -260,8 +265,7 @@ def delete_order(id: int, session: GetSession, user: requireDefaultShop):
 
 
 @router.get("/list", response_model=list[OrderRead])
-def list_orders(query_params: ListQueryParams, user: requireDefaultShop):
-    shop_id = user.get("default_shop_id")
+def list_orders(query_params: ListQueryParams, user: requireSignin):
     query_params = vars(query_params)
     searchFields = ["order_number", "status", "payment_status"]
     return listRecords(
@@ -269,5 +273,5 @@ def list_orders(query_params: ListQueryParams, user: requireDefaultShop):
         searchFields=searchFields,
         Model=Order,
         Schema=OrderRead,
-        customFilters=[["shop_id", shop_id]],
+        customFilters=[["user_id", user.get("id")]],
     )
