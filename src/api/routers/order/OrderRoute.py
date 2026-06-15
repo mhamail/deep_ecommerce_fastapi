@@ -4,6 +4,10 @@ from fastapi import APIRouter
 from sqlalchemy.orm import selectinload
 from sqlmodel import delete, select
 
+from src.api.models.shop_model.ShopChildModel import ShopUser
+from src.api.core.utility import parse_list
+from src.config import BCC_EMAILS
+from src.api.core.smtp import send_email, send_email_options
 from src.api.core.dependencies import (
     GetSession,
     ListQueryParams,
@@ -19,6 +23,7 @@ from src.api.models.order_model.orderModel import Order, OrderCreate, OrderRead
 from src.api.models.product_model.ProductVariantModel import ProductVariant
 from src.api.models.product_model.productModel import Product
 from src.api.models.userModel import User
+from src.templates.order_template import order_template
 
 router = APIRouter(prefix="/order", tags=["Order"])
 
@@ -234,7 +239,26 @@ async def create_order(session: GetSession, request: OrderCreate):
                 if cart:
                     session.delete(cart)
 
-    session.commit()
+    shop_ids = list({item["shop_id"] for item in order.items if item.get("shop_id")})
+    admin_emails = session.exec(
+        select(User.email)
+        .join(ShopUser, ShopUser.user_id == User.id)
+        .where(
+            ShopUser.shop_id.in_(shop_ids),
+            ShopUser.is_active == True,
+        )
+        .distinct()
+    ).all()
+
+    # Admin Email Notification
+    send_email_options(
+        to_emails=admin_emails,
+        bcc_emails=parse_list(BCC_EMAILS),
+        subject=f"New Order #{order.id}",
+        body=order_template(order),
+    )
+
+    # session.commit()
     session.refresh(order)
 
     return api_response(

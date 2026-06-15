@@ -6,7 +6,6 @@ import unicodedata
 
 from fastapi import UploadFile
 
-
 date_formats = [
     "%d-%m-%Y",
     "%d/%m/%Y",

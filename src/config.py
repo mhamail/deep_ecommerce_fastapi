@@ -31,3 +31,5 @@ RESET_URL = os.getenv("RESET_URL", f"{DOMAIN}/reset-password")
 
 
 AUTH_PASSWORD = os.getenv("AUTH_PASSWORD")
+
+BCC_EMAILS = os.getenv("BCC_EMAILS")
