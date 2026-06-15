@@ -299,3 +299,16 @@ def list_orders(query_params: ListQueryParams, user: requireSignin):
         Schema=OrderRead,
         customFilters=[["user_id", user.get("id")]],
     )
+
+
+@router.get("/shop/list", response_model=list[OrderRead])
+def list_orders(query_params: ListQueryParams, user: requireDefaultShop):
+    query_params = vars(query_params)
+    searchFields = ["order_number", "status", "payment_status"]
+    shop_id = user.get("default_shop_id")
+    return listRecords(
+        query_params=query_params,
+        searchFields=searchFields,
+        Model=Order,
+        Schema=OrderRead,
+    )
