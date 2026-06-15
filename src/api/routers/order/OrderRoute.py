@@ -306,9 +306,24 @@ def list_orders(query_params: ListQueryParams, user: requireDefaultShop):
     query_params = vars(query_params)
     searchFields = ["order_number", "status", "payment_status"]
     shop_id = user.get("default_shop_id")
+
+    # Filter orders that contain at least one item belonging to this shop.
+    # Order.items is a JSON array of objects: [{"shop_id": 23, ...}, ...]
+    # JSONB @> operator: items::jsonb @> '[{"shop_id": <shop_id>}]'
+    #
+    # Alternative via query param (client-side):
+    #   deepFilters=[["items", {"shop_id": 23}]]
+    #   objectArrayFilters=[["items", ["shop_id", 23]]]
+    def filter_by_shop(stmt, Model):
+        from sqlalchemy import cast as sa_cast
+        from sqlalchemy.dialects.postgresql import JSONB
+
+        return stmt.where(sa_cast(Model.items, JSONB).contains([{"shop_id": shop_id}]))
+
     return listRecords(
         query_params=query_params,
         searchFields=searchFields,
         Model=Order,
         Schema=OrderRead,
+        otherFilters=filter_by_shop,
     )

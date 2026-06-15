@@ -315,6 +315,30 @@ def is_json_field(attr):
 
 
 def deep_filter(statement, Model, parsed_filters):
+    """
+    Filter by any field path, including JSON array columns.
+
+    Supported formats:
+      # String / bool / number column (direct relation or nested):
+      [["status", "pending"]]
+      [["user.is_active", True]]
+
+      # JSON array of PRIMITIVES (e.g. role.permissions = ["all","user-create"]):
+      [["user_roles.role.permissions", ["all", "user-create"]]]
+
+      # JSON array of OBJECTS — match by a key/value inside each element:
+      # e.g. Order.items = [{"shop_id": 23, "product_variant_id": 12, ...}, ...]
+      # Generates: items::jsonb @> '[{"shop_id": 23}]'
+      [["items", {"shop_id": 23}]]
+
+      # Multiple object-key conditions (AND — both must match some element):
+      [["items", {"shop_id": 23}], ["items", {"product_variant_id": 12}]]
+
+      # JSON array of objects — match by multiple fields at once (same element):
+      # NOTE: containment checks if ANY element satisfies the fragment.
+      # To require same element: use a single dict with all keys.
+      [["items", {"shop_id": 23, "product_variant_id": 12}]]
+    """
     filters = []
 
     for entry in parsed_filters:
@@ -333,9 +357,13 @@ def deep_filter(statement, Model, parsed_filters):
 
         for val in values:
 
-            # ✅ JSON ARRAY FIELD (permissions)
+            # ✅ JSON ARRAY FIELD (permissions list, items list, etc.)
+            # val can be:
+            #   - a primitive  → checks if array contains that value  → [val]
+            #   - a dict       → checks if array contains an obj matching all keys → [val]
+            # Both use PostgreSQL @> operator via JSONB cast.
             if is_json_field(attr):
-                # IMPORTANT: value must be array
+                # IMPORTANT: value must be wrapped in array
                 ors.append(cast(attr, JSONB).contains([val]))
                 continue  # 🚨 stop here (NO ilike!)
 
