@@ -4,6 +4,7 @@ from fastapi import APIRouter
 from sqlalchemy.orm import selectinload
 from sqlmodel import delete, select
 
+from src.api.models.order_model.orderItemModel import OrderItem
 from src.api.models.shop_model.ShopChildModel import ShopUser
 from src.api.core.utility import parse_list
 from src.config import BCC_EMAILS
@@ -104,6 +105,25 @@ def require_manual_shipping_address(data: dict):
             "Shipping details are required for manual orders",
         )
     )
+
+
+def insertOrderItems(session, items_data, order):
+    order_items = [
+        OrderItem(
+            order_id=order.id,
+            shop_id=item["shop_id"],
+            product_variant_id=item["product_variant_id"],
+            product_name=item["product_name"],
+            quantity=item["quantity"],
+            price=item["price"],
+            actual_price=item["actual_price"],
+            variant_attributes=item["variant_attributes"],
+            image=item["image"],
+        )
+        for item in items_data
+    ]
+
+    session.add_all(order_items)
 
 
 def destock_product_variants(session, items_data):
@@ -212,12 +232,13 @@ async def create_order(session: GetSession, request: OrderCreate):
     subtotal = 0
     subtotal = sum(item["price"] * item["quantity"] for item in items_data)
 
-    data["items"] = items_data
     data["subtotal"] = subtotal
     data["total"] = subtotal - (data.get("discount") or 0)
 
     order = Order(**data)
     session.add(order)
+
+    insertOrderItems(session, items_data, order)
 
     # ─────────────────────────────────────────────
     # Cart cleanup — delete ordered items,

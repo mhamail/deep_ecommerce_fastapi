@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, UploadFile
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import selectinload
 from sqlmodel import select
 from src.api.models.product_model.ProductVariantModel import ProductVariant
@@ -14,14 +14,10 @@ from src.api.core.dependencies import (
 from src.api.models.cart_model.cartModel import (
     Cart,
     CartForm,
-    CartRead,
     CartAndItemsRead,
     CartShopRead,
 )
-from src.api.models.cart_model.cartItemModel import CartItem, CartItemForm, CartItemRead
-from src.api.models.shop_model.shopModel import ShopRead
-from src.api.models.userModel import User
-from src.api.models.baseModel import TimeStampReadModel, TimeStampedModel
+from src.api.models.cart_model.cartItemModel import CartItem
 
 router = APIRouter(prefix="/cart", tags=["Cart"])
 

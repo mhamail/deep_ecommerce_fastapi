@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, Optional, List
 from sqlalchemy import Column, JSON, String, text
 from sqlmodel import Field, Relationship, SQLModel
 
+from src.api.models.order_model.orderItemModel import OrderItem, OrderItemsRead
 from src.api.models.addressModel import AddressDetail
 from src.api.models.baseModel import TimeStampReadModel, TimeStampedModel
 
@@ -42,26 +43,14 @@ class Order(TimeStampedModel, table=True):
     # Address (snapshot)
     shipping_address: Optional[dict] = Field(default=None, sa_column=Column(JSON))
 
+    # Relationships
     # Item snapshots
-    items: List[dict] = Field(
-        default_factory=list,
-        sa_column=Column(JSON, nullable=False),
+    items: List[OrderItem] = Relationship(
+        back_populates="order",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"},
     )
 
-    # Relationships
     user: "User" = Relationship()
-
-
-class OrderItemSnapshotRead(SQLModel):
-    product_id: Optional[int] = None
-    shop_id: Optional[int] = None
-    product_variant_id: Optional[int] = None
-    product_name: str
-    variant_attributes: Optional[dict] = None
-    price: float
-    actual_price: Optional[float] = None
-    quantity: int
-    image: Optional[dict] = None
 
 
 class OrderRead(SQLModel, TimeStampReadModel):
@@ -74,7 +63,7 @@ class OrderRead(SQLModel, TimeStampReadModel):
     status: str
     payment_status: str
     shipping_address: Optional[dict] = None
-    items: List[OrderItemSnapshotRead] = Field(default_factory=list)
+    items: List[OrderItemsRead] = []
 
 
 class OrderCreate(SQLModel):
