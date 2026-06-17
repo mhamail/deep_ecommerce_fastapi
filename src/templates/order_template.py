@@ -1,10 +1,10 @@
 from datetime import datetime
 
 
-def order_template(order):
+def order_template(order, items):
     items_html = ""
 
-    for item in order.items:
+    for item in items:
         items_html += f"""
         <tr>
             <td>{item.get("product_name")}</td>

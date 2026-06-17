@@ -14,6 +14,7 @@ from src.api.core.dependencies import (
     ListQueryParams,
     requireDefaultShop,
     requireSignin,
+    requireAdmin,
 )
 from src.api.core.operation import listRecords
 from src.api.core.response import api_response, raiseExceptions
@@ -113,6 +114,7 @@ def insertOrderItems(session, items_data, order):
             order_id=order.id,
             shop_id=item["shop_id"],
             product_variant_id=item["product_variant_id"],
+            product_id=item["product_id"],
             product_name=item["product_name"],
             quantity=item["quantity"],
             price=item["price"],
@@ -179,6 +181,7 @@ async def create_order(session: GetSession, request: OrderCreate):
                 "variant": item.variant,
                 "id": item.id,
                 "product_variant_id": item.product_variant_id,
+                "product_id": item.product_id,
                 "product_name": item.product_name,
                 "variant_attributes": item.variant_attributes,
                 "shop_id": item.cart.shop_id,
@@ -209,6 +212,7 @@ async def create_order(session: GetSession, request: OrderCreate):
                     {
                         "variant": variant,
                         "product_variant_id": variant.id,
+                        "product_id": variant.product_id,
                         "quantity": item.get("quantity", 1),
                         "product_name": variant.product.name,
                         "variant_attributes": variant.attributes,
@@ -237,6 +241,7 @@ async def create_order(session: GetSession, request: OrderCreate):
 
     order = Order(**data)
     session.add(order)
+    session.flush()  # get order id
 
     insertOrderItems(session, items_data, order)
 
@@ -260,7 +265,10 @@ async def create_order(session: GetSession, request: OrderCreate):
                 if cart:
                     session.delete(cart)
 
-    shop_ids = list({item["shop_id"] for item in order.items if item.get("shop_id")})
+    order_read = OrderRead.model_validate(order)
+    items = [item.model_dump() for item in order_read.items]
+    shop_ids = list({item["shop_id"] for item in items if item.get("shop_id")})
+
     admin_emails = session.exec(
         select(User.email)
         .join(ShopUser, ShopUser.user_id == User.id)
@@ -276,23 +284,29 @@ async def create_order(session: GetSession, request: OrderCreate):
         to_emails=admin_emails,
         bcc_emails=parse_list(BCC_EMAILS),
         subject=f"New Order #{order.id}",
-        body=order_template(order),
+        body=order_template(order, items),
     )
 
-    # session.commit()
+    session.commit()
     session.refresh(order)
 
-    return api_response(
-        201, "Order Created Successfully", OrderRead.model_validate(order)
-    )
+    return api_response(201, "Order Created Successfully", order_read)
 
 
 @router.get("/read/{id}", response_model=OrderRead)
-def read_order(id: int, session: GetSession, user: requireDefaultShop):
-    shop_id = user.get("default_shop_id")
+def read_order(id: int, session: GetSession, user: requireSignin):
+
     order = session.exec(
-        select(Order).where(Order.id == id, Order.shop_id == shop_id)
+        select(Order).where(Order.id == id, Order.user_id == user.get("id"))
     ).first()
+    raiseExceptions((order, 404, "Order not found"))
+    return api_response(200, "Order Found", OrderRead.model_validate(order))
+
+
+@router.get("/read/admin/{id}", response_model=OrderRead)
+def read_order(id: int, session: GetSession, user: requireAdmin):
+
+    order = session.get(Order, id).first()
     raiseExceptions((order, 404, "Order not found"))
     return api_response(200, "Order Found", OrderRead.model_validate(order))
 
@@ -319,32 +333,4 @@ def list_orders(query_params: ListQueryParams, user: requireSignin):
         Model=Order,
         Schema=OrderRead,
         customFilters=[["user_id", user.get("id")]],
-    )
-
-
-@router.get("/shop/list", response_model=list[OrderRead])
-def list_orders(query_params: ListQueryParams, user: requireDefaultShop):
-    query_params = vars(query_params)
-    searchFields = ["order_number", "status", "payment_status"]
-    shop_id = user.get("default_shop_id")
-
-    # Filter orders that contain at least one item belonging to this shop.
-    # Order.items is a JSON array of objects: [{"shop_id": 23, ...}, ...]
-    # JSONB @> operator: items::jsonb @> '[{"shop_id": <shop_id>}]'
-    #
-    # Alternative via query param (client-side):
-    #   deepFilters=[["items", {"shop_id": 23}]]
-    #   objectArrayFilters=[["items", ["shop_id", 23]]]
-    def filter_by_shop(stmt, Model):
-        from sqlalchemy import cast as sa_cast
-        from sqlalchemy.dialects.postgresql import JSONB
-
-        return stmt.where(sa_cast(Model.items, JSONB).contains([{"shop_id": shop_id}]))
-
-    return listRecords(
-        query_params=query_params,
-        searchFields=searchFields,
-        Model=Order,
-        Schema=OrderRead,
-        otherFilters=filter_by_shop,
     )

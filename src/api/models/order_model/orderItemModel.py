@@ -24,6 +24,8 @@ class OrderItem(TimeStampedModel, table=True):
         index=True,
     )
 
+    product_id: int
+
     product_variant_id: int | None = None
 
     product_name: str
