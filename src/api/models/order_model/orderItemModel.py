@@ -50,6 +50,8 @@ class OrderItem(TimeStampedModel, table=True):
 
 
 class OrderItemsRead(SQLModel):
+    id: int
+    order_id: int
     product_id: Optional[int] = None
     shop_id: Optional[int] = None
     product_variant_id: Optional[int] = None
@@ -59,3 +61,6 @@ class OrderItemsRead(SQLModel):
     actual_price: Optional[float] = None
     quantity: int
     image: Optional[dict] = None
+
+    class Config:
+        from_attributes = True
