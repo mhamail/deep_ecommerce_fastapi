@@ -55,6 +55,28 @@ class Product(TimeStampedModel, table=True):
     category: "Category" = Relationship(back_populates="products")
     variants: List["ProductVariant"] = Relationship(back_populates="product")
 
+    @property
+    def total_stock(self) -> int:
+        return sum(variant.stock or 0 for variant in self.variants)
+
+    @property
+    def min_price(self) -> Optional[float]:
+        prices = [
+            variant.discount_price or variant.price
+            for variant in self.variants
+            if variant.discount_price is not None or variant.price is not None
+        ]
+        return min(prices) if prices else None
+
+    @property
+    def max_price(self) -> Optional[float]:
+        prices = [
+            variant.discount_price or variant.price
+            for variant in self.variants
+            if variant.discount_price is not None or variant.price is not None
+        ]
+        return max(prices) if prices else None
+
 
 class ShopRead(SQLModel):
     id: int
@@ -90,6 +112,11 @@ class ProductBase(SQLModel):
     is_active: bool
     is_featured: bool
 
+    # variant
+    min_price: Optional[float] = 0
+    max_price: Optional[float] = 0
+    total_stock: int = 0
+
     # Relations
     shop: ShopRead
     category: CategoryRead
@@ -97,6 +124,12 @@ class ProductBase(SQLModel):
 
 class ProductVariantBase(SQLModel):
     id: int
+    price: float
+    discount_price: float
+    stock: int
+    is_in_stock: bool
+    attributes: dict
+    image: Optional[MediaRead]
 
 
 class ProductRead(ProductBase, TimeStampReadModel):
