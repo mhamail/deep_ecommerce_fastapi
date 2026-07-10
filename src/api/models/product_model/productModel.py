@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING, Optional, List, Union
 from fastapi import File, Form, UploadFile
+from pydantic import computed_field
 from sqlmodel import JSON, SQLModel, Field, Relationship, Column
 
 
@@ -124,12 +125,21 @@ class ProductBase(SQLModel):
 
 class ProductVariantBase(SQLModel):
     id: int
-    price: float
-    discount_price: float
-    stock: int
-    is_in_stock: bool
-    attributes: dict
+    price: Optional[float]
+    discount_price: Optional[float]
+    stock: Optional[int]
+    is_in_stock: Optional[bool]
     image: Optional[MediaRead]
+
+    attributes: Optional[dict]
+
+    @computed_field
+    @property
+    def attributes_list(self) -> list[dict[str, str]]:
+        if not self.attributes:
+            return []
+
+        return [{"key": k, "value": str(v)} for k, v in self.attributes.items()]
 
 
 class ProductRead(ProductBase, TimeStampReadModel):
