@@ -133,14 +133,6 @@ class ProductVariantBase(SQLModel):
 
     attributes: Optional[dict]
 
-    @computed_field
-    @property
-    def attributes_list(self) -> list[dict[str, str]]:
-        if not self.attributes:
-            return []
-
-        return [{"key": k, "value": str(v)} for k, v in self.attributes.items()]
-
 
 class ProductRead(ProductBase, TimeStampReadModel):
     variants: Optional[List[ProductVariantBase]] = None
