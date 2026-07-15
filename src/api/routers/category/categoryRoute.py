@@ -33,6 +33,7 @@ async def create(
 ):
     """Create a new category with auto-level and root assignment."""
     # 1️⃣ Calculate hierarchical level
+
     level = calculate_category_level(session, request.parent_id)
     # 2️⃣ Initialize model
     data = serialize_obj(request)
@@ -47,7 +48,7 @@ async def create(
     session.flush()  # assigns 'id' without committing
 
     # 4️⃣ Determine root_id
-    if data.parent_id is None:
+    if data.parent_id is None or data.parent_id == 0:
         data.root_id = data.id  # top-level category
     else:
         parent = session.get(Category, data.parent_id)

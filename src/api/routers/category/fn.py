@@ -7,7 +7,7 @@ from src.api.models.category_model import Category
 
 
 def calculate_category_level(session, parent_id: Optional[int]) -> int:
-    if not parent_id:
+    if not parent_id or parent_id == 0:
         return 1  # root level
 
     parent = session.get(Category, parent_id)
