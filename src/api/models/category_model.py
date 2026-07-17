@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 from fastapi import File, Form, UploadFile
 from pydantic import BaseModel
-from sqlalchemy import JSON, Column, Enum
+from sqlalchemy import JSON, Column, Enum, UniqueConstraint
 from sqlmodel import Field, Relationship, SQLModel
 
 from src.api.models.utils import clean, to_bool, to_float, to_int
@@ -15,6 +15,9 @@ if TYPE_CHECKING:
 
 class Category(TimeStampedModel, table=True):
     __tablename__ = "categories"
+    __table_args__ = (
+        UniqueConstraint("parent_id", "name", name="uq_category_name_per_parent"),
+    )
 
     # ==========================
     # Primary Fields

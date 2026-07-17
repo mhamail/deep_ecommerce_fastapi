@@ -57,6 +57,26 @@ class Product(TimeStampedModel, table=True):
     variants: List["ProductVariant"] = Relationship(back_populates="product")
 
     @property
+    def min_price(self) -> Optional[float]:
+        prices = [v.price for v in self.variants if v.price is not None]
+        return min(prices) if prices else None
+
+    @property
+    def max_price(self) -> Optional[float]:
+        prices = [v.price for v in self.variants if v.price is not None]
+        return max(prices) if prices else None
+
+    @property
+    def min_discount_price(self) -> Optional[float]:
+        prices = [v.discount_price for v in self.variants if v.discount_price is not None]
+        return min(prices) if prices else None
+
+    @property
+    def max_discount_price(self) -> Optional[float]:
+        prices = [v.discount_price for v in self.variants if v.discount_price is not None]
+        return max(prices) if prices else None
+
+    @property
     def total_stock(self) -> int:
         return sum(variant.stock or 0 for variant in self.variants)
 
