@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, UploadFile
+from sqlalchemy.orm import joinedload, selectinload
 from sqlmodel import exists, select
 from src.api.models.product_model.ProductVariantModel import ProductVariant
 from src.api.routers.category.fn import get_category_subtree_ids
@@ -234,12 +235,27 @@ def findOne(
     session: GetSession,
 ):
 
-    read = session.get(Product, id)
+    read = session.get(
+        Product,
+        id,
+        options=[
+            joinedload(Product.shop),
+            joinedload(Product.category),
+            selectinload(Product.variants),
+        ],
+    )
 
     raiseExceptions((read, 404, "Product not found"))
     data = ProductSingleRead.model_validate(read)
 
     return api_response(200, "Product Found", data)
+
+
+PRODUCT_LIST_JOIN_OPTIONS = [
+    selectinload(Product.shop),
+    selectinload(Product.category),
+    selectinload(Product.variants),
+]
 
 
 @router.get("/list", response_model=list[ProductRead])
@@ -254,6 +270,7 @@ def list(
         searchFields=searchFields,
         Model=Product,
         Schema=ProductRead,
+        join_options=PRODUCT_LIST_JOIN_OPTIONS,
     )
 
 
@@ -273,6 +290,7 @@ def list(query_params: ListQueryParams, category_id: int, session: GetSession):
         Model=Product,
         Schema=ProductRead,
         otherFilters=otherFilters,
+        join_options=PRODUCT_LIST_JOIN_OPTIONS,
     )
 
 
@@ -291,4 +309,5 @@ def list(
         Model=Product,
         Schema=ProductRead,
         customFilters=[["shop_id", shop_id]],
+        join_options=PRODUCT_LIST_JOIN_OPTIONS,
     )

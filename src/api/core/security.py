@@ -183,14 +183,35 @@ def require_signin(
 
 def require_signin_user(
     request: Request,
-    user: dict = Depends(require_signin),
+    credentials: HTTPAuthorizationCredentials = Security(HTTPBearer()),
     session: Session = Depends(get_session),
 ):
     # ✅ CACHE inside request (IMPORTANT)
     if hasattr(request.state, "user_data"):
         return request.state.user_data
-    user_id = user.get("id")
 
+    token = credentials.credentials
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    except JWTError as e:
+        return api_response(status.HTTP_401_UNAUTHORIZED, "Invalid token", data=str(e))
+
+    token_user = payload.get("user")
+    if token_user is None:
+        return api_response(
+            status.HTTP_401_UNAUTHORIZED, "Invalid token: no user data"
+        )
+
+    if payload.get("refresh") is True:
+        return api_response(
+            401, "Refresh token is not allowed for this route"
+        )
+
+    user_id = token_user.get("id")
+
+    # ✅ single query: fetch user + roles + shop + shop_memberships together
+    # (this replaces the separate lightweight user lookup that require_signin
+    # used to do just to check token_version — same check, one DB round trip)
     db_user = (
         session.exec(
             select(User)
@@ -214,6 +235,9 @@ def require_signin_user(
         .first()
     )  # Like findById
     raiseExceptions((db_user, 400, "User not found"))
+
+    if db_user.token_version != payload.get("token_version"):
+        return api_response(401, "Session expired. Please login again.")
 
     # build your user_data ONCE
     user_data = {
