@@ -1,7 +1,7 @@
 from sqlalchemy.exc import DataError
 from datetime import datetime, timezone
 from fastapi import Query
-from sqlalchemy import ScalarResult
+from sqlalchemy import ScalarResult, func
 from sqlmodel import Session, SQLModel, select
 from typing import List, Optional
 from src.lib.db_con import get_session
@@ -120,15 +120,14 @@ def listop(
         deepFilters=deepFilters,
     )
 
-    # Total count (before pagination)
-    total = _exec(session, statement, Model)
-    total_count = len(total)
+    # Total count (before pagination) — count in the DB, don't load every row
+    count_stmt = select(func.count()).select_from(statement.order_by(None).subquery())
+    total_count = session.exec(count_stmt).one()
 
     # Now apply pagination (skip/limit)
     paginated_stmt = statement.offset(skip).limit(limit)
     results = _exec(session, paginated_stmt, Model)
 
-    print(results)
     return {"data": results, "total": total_count}
 
 
