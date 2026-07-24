@@ -54,7 +54,10 @@ class Product(TimeStampedModel, table=True):
     shop: "Shop" = Relationship(back_populates="products")
     creator: "User" = Relationship(back_populates="created_products")
     category: "Category" = Relationship(back_populates="products")
-    variants: List["ProductVariant"] = Relationship(back_populates="product")
+    variants: List["ProductVariant"] = Relationship(
+        back_populates="product",
+        sa_relationship_kwargs={"order_by": "ProductVariant.position"},
+    )
 
     @property
     def min_price(self) -> Optional[float]:
@@ -68,12 +71,16 @@ class Product(TimeStampedModel, table=True):
 
     @property
     def min_discount_price(self) -> Optional[float]:
-        prices = [v.discount_price for v in self.variants if v.discount_price is not None]
+        prices = [
+            v.discount_price for v in self.variants if v.discount_price is not None
+        ]
         return min(prices) if prices else None
 
     @property
     def max_discount_price(self) -> Optional[float]:
-        prices = [v.discount_price for v in self.variants if v.discount_price is not None]
+        prices = [
+            v.discount_price for v in self.variants if v.discount_price is not None
+        ]
         return max(prices) if prices else None
 
     @property
@@ -149,8 +156,9 @@ class ProductVariantBase(SQLModel):
     discount_price: Optional[float]
     stock: Optional[int]
     is_in_stock: Optional[bool]
-    image: Optional[MediaRead]
-
+    image: Optional[MediaRead] = None
+    position: int = 0
+    image: Optional[List[MediaRead]]
     attributes: Optional[dict]
 
 

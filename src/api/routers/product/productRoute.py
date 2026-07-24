@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, UploadFile
+from fastapi import APIRouter, Depends, Request, UploadFile
+from starlette.datastructures import UploadFile as FormUploadFile
 from sqlalchemy.orm import joinedload, selectinload
 from sqlmodel import exists, select
 from src.api.models.product_model.ProductVariantModel import ProductVariant
@@ -40,19 +41,7 @@ def _variant_payload(product_id: int, variant: dict):
         "sku": variant.get("sku"),
         "attributes": variant.get("attributes", {}),
         "image": variant.get("image"),
-    }
-
-
-def _default_variant_payload(product: Product):
-    return {
-        "product_id": product.id,
-        "price": product.price,
-        "discount_price": product.discount_price,
-        "stock": product.stock,
-        "is_in_stock": product.is_in_stock,
-        "sku": product.sku,
-        "attributes": {},
-        "image": product.thumbnail,
+        "position": variant.get("position", 0),
     }
 
 
@@ -65,12 +54,36 @@ def _update_variant_from_payload(product_variant: ProductVariant, payload: dict)
             setattr(product_variant, field, value)
 
 
-def upsert_product_variants(session, product: Product, request: ProductForm):
-    if not request.variant_data:
-        return
+def _extract_variant_images(form_data) -> dict:
+    """Per-variant image files travel as `variant_image_{index}` multipart
+    fields — variant_data itself is a JSON string blob, so files can't live
+    inside it, and the variant count isn't known ahead of time (can't
+    pre-declare N fields on ProductForm)."""
+    images = {}
+    for key, value in form_data.multi_items():
+        if key.startswith("variant_image_") and isinstance(value, FormUploadFile):
+            try:
+                index = int(key.removeprefix("variant_image_"))
+            except ValueError:
+                continue
+            images[index] = value
+    return images
 
-    for variant in request.variant_data:
+
+async def upsert_product_variants(
+    session, product: Product, request: ProductForm, variant_images: dict
+):
+    variant_data = request.variant_data or []
+    # Snapshot BEFORE creating/updating anything this call — newly created
+    # variants never carry a client-supplied id, so diffing against
+    # `product.variants` read *after* the loop below would wrongly treat
+    # them as "existing but missing from the payload" and delete them.
+    existing_ids_before = {v.id for v in product.variants}
+
+    for index, variant in enumerate(variant_data):
+        variant["position"] = index
         variant_id = variant.get("id")
+        image_file = variant_images.get(index)
 
         if variant_id:
             product_variant = session.exec(
@@ -81,6 +94,11 @@ def upsert_product_variants(session, product: Product, request: ProductForm):
             ).first()
             raiseExceptions((product_variant, 404, "Product Variant not found"))
 
+            if image_file:
+                if product_variant.image:
+                    await deleteMediaFiles(session, product_variant.image)
+                variant["image"] = await uploadSingleMedia(image_file, session)
+
             _update_variant_from_payload(product_variant, variant)
             session.add(product_variant)
             continue
@@ -90,6 +108,8 @@ def upsert_product_variants(session, product: Product, request: ProductForm):
         # =====================================
 
         else:
+            if image_file:
+                variant["image"] = await uploadSingleMedia(image_file, session)
 
             product_variant = ProductVariant(
                 **_variant_payload(
@@ -100,10 +120,22 @@ def upsert_product_variants(session, product: Product, request: ProductForm):
 
             session.add(product_variant)
 
+    # =====================================
+    # DELETE VARIANTS DROPPED FROM THE LIST
+    # =====================================
+    incoming_ids = {v.get("id") for v in variant_data if v.get("id")}
+    for missing_id in existing_ids_before - incoming_ids:
+        existing_variant = session.get(ProductVariant, missing_id)
+        if existing_variant:
+            if existing_variant.image:
+                await deleteMediaFiles(session, existing_variant.image)
+            session.delete(existing_variant)
+
 
 @router.post("/create", response_model=ProductSingleRead)
 async def create_product(
     session: GetSession,
+    http_request: Request,
     user=requireShopPermission(["product:create"]),
     request: ProductForm = Depends(),
 ):
@@ -145,39 +177,12 @@ async def create_product(
     session.add(product)
     session.flush()
 
-    if request.variant_data and len(request.variant_data) > 0:
-        for variant in request.variant_data:
-
-            image = variant.get("image")
-
-            if image and not isinstance(image, str):
-                image = await uploadSingleMedia(image, session)
-
-            variant_data = {
-                "product_id": product.id,
-                "price": variant.get("price"),
-                "discount_price": variant.get("discount_price"),
-                "stock": variant.get("stock", 0),
-                "is_in_stock": variant.get("is_in_stock", True),
-                "sku": variant.get("sku"),
-                "attributes": variant.get("attributes", {}),
-                # "image": image,
-            }
-
-            productVariant = ProductVariant(**variant_data)
-            session.add(productVariant)
-    else:
-        variant_data = _default_variant_payload(product)
-        # =============================
-        # Add Default product Variant
-        # =============================
-        productVariant = ProductVariant(**variant_data)
-
-        session.add(productVariant)
+    variant_images = _extract_variant_images(await http_request.form())
+    print(variant_images)
+    await upsert_product_variants(session, product, request, variant_images)
 
     session.commit()
     session.refresh(product)
-
     return api_response(
         201,
         "Product Created Successfully",
@@ -189,6 +194,7 @@ async def create_product(
 async def update_product(
     id: int,
     session: GetSession,
+    http_request: Request,
     user=requireShopPermission(["product:create", "product:update"]),
     request: ProductForm = Depends(),
 ):
@@ -217,7 +223,9 @@ async def update_product(
     # ==========================
 
     updated_product = updateOp(product, request, session)
-    upsert_product_variants(session, updated_product, request)
+
+    variant_images = _extract_variant_images(await http_request.form())
+    await upsert_product_variants(session, updated_product, request, variant_images)
 
     session.commit()
     session.refresh(updated_product)

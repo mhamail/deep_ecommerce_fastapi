@@ -30,6 +30,9 @@ class ProductVariant(TimeStampedModel, table=True):
     stock: int = Field(default=0)
     is_in_stock: bool = Field(default=True)
 
+    # Display order within the product's variant list.
+    position: int = Field(default=0)
+
     # Variant Attributes (IMPORTANT)
     attributes: dict = Field(default_factory=dict, sa_column=Column(JSON))
     # Example: {"color": "Red", "size": "M"}
@@ -57,6 +60,9 @@ class ProductVariantRead(SQLModel, TimeStampReadModel):
     sku: Optional[str] = None
     stock: int
     is_in_stock: bool
+
+    # Display order within the product's variant list.
+    position: int = 0
 
     # Attributes
     attributes: Optional[dict] = None
@@ -99,6 +105,10 @@ class ProductVariantForm:
         # Status
         # -------------------------
         is_active: Optional[bool] = Form(True),
+        # -------------------------
+        # position
+        # -------------------------
+        position: Optional[int] = Form(0),
     ):
 
         # ==========================
@@ -120,3 +130,6 @@ class ProductVariantForm:
 
         # Status
         self.is_active = to_bool(is_active) if is_active is not None else True
+
+        # position
+        self.position = to_int(position)
