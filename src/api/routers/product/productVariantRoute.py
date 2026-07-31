@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, UploadFile
-from sqlmodel import select
+from sqlmodel import delete, func, select
+from src.api.models.cart_model.cartItemModel import CartItem
 from src.api.core.operation import listRecords, serialize_obj, updateOp
 from src.api.core.response import api_response, raiseExceptions
 from src.api.core.dependencies import (
@@ -96,6 +97,42 @@ async def update_product_variant(
         "Product Variant Updated Successfully",
         ProductVariantRead.model_validate(updated_product),
     )
+
+
+@router.delete("/delete/{id}")
+async def delete_product_variant(
+    id: int,
+    session: GetSession,
+    user=requireShopPermission(["product:delete"]),
+):
+    shop_id = user.get("default_shop_id")
+    productVariant = session.exec(
+        select(ProductVariant)
+        .join(Product)
+        .where(ProductVariant.id == id, Product.shop_id == shop_id)
+    ).first()
+    raiseExceptions((productVariant, 404, "Product Variant not found"))
+
+    variant_count = session.exec(
+        select(func.count()).where(ProductVariant.product_id == productVariant.product_id)
+    ).one()
+    if variant_count <= 1:
+        return api_response(
+            400,
+            "This is the only variant left. Delete the whole product instead.",
+        )
+
+    # Deleting a variant that's still in someone's cart violates the
+    # cart_items -> product_variants foreign key, so drop those rows first.
+    session.exec(delete(CartItem).where(CartItem.product_variant_id == id))
+
+    if productVariant.image:
+        await deleteMediaFiles(session, productVariant.image)
+
+    session.delete(productVariant)
+    session.commit()
+
+    return api_response(200, "Product Variant deleted successfully")
 
 
 @router.get("/read/{id}", response_model=ProductVariantRead)

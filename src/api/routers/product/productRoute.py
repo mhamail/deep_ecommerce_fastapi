@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, Request, UploadFile
 from starlette.datastructures import UploadFile as FormUploadFile
 from sqlalchemy.orm import joinedload, selectinload
-from sqlmodel import exists, select
+from sqlmodel import delete, exists, select
+from src.api.models.cart_model.cartItemModel import CartItem
 from src.api.models.product_model.ProductVariantModel import ProductVariant
 from src.api.routers.category.fn import get_category_subtree_ids
 from src.api.models.category_model import Category
@@ -43,6 +44,14 @@ def _variant_payload(product_id: int, variant: dict):
         "image": variant.get("image"),
         "position": variant.get("position", 0),
     }
+
+
+def _remove_variants_from_carts(session, variant_ids):
+    """Deleting a variant that's still sitting in someone's cart violates the
+    cart_items -> product_variants foreign key, so drop those cart rows first."""
+    if not variant_ids:
+        return
+    session.exec(delete(CartItem).where(CartItem.product_variant_id.in_(variant_ids)))
 
 
 def _update_variant_from_payload(product_variant: ProductVariant, payload: dict):
@@ -124,7 +133,9 @@ async def upsert_product_variants(
     # DELETE VARIANTS DROPPED FROM THE LIST
     # =====================================
     incoming_ids = {v.get("id") for v in variant_data if v.get("id")}
-    for missing_id in existing_ids_before - incoming_ids:
+    dropped_ids = existing_ids_before - incoming_ids
+    _remove_variants_from_carts(session, dropped_ids)
+    for missing_id in dropped_ids:
         existing_variant = session.get(ProductVariant, missing_id)
         if existing_variant:
             if existing_variant.image:
@@ -210,13 +221,17 @@ async def update_product(
         await deleteMediaFiles(session, product.thumbnail)
         request.thumbnail = await uploadSingleMedia(request.thumbnail, session)
 
-    images = getattr(request, "images", None)
-    if images:
-        print("Uploading new images...", images)
-
+    # Run even when there are no new files, as long as something is being
+    # removed — a delete-only edit (no new upload) must still persist.
+    if request.images or request.delete_images:
         request.images = await arrangeUpdateMultiMedia(
             session, product.images, request.images, request.delete_images
         )
+    else:
+        # Neither add nor remove anything — leave the stored list untouched
+        # (updateOp below would otherwise overwrite it with the empty [] the
+        # form always carries when no images/delete_images were sent).
+        del request.images
 
     # ==========================
     # UPDATE
@@ -235,6 +250,38 @@ async def update_product(
         "Product Updated Successfully",
         ProductSingleRead.model_validate(updated_product),
     )
+
+
+@router.delete("/delete/{id}")
+async def delete_product(
+    id: int,
+    session: GetSession,
+    user=requireShopPermission(["product:delete"]),
+):
+    shop_id = user.get("default_shop_id")
+    product = session.exec(
+        select(Product)
+        .options(selectinload(Product.variants))
+        .where(Product.id == id, Product.shop_id == shop_id)
+    ).first()
+    raiseExceptions((product, 404, "Product not found"))
+
+    # Deleting a variant that's still in someone's cart violates the FK, so
+    # drop those cart rows first.
+    _remove_variants_from_carts(session, [v.id for v in product.variants])
+
+    # Delete every variant (and its image) that belongs to this product
+    for variant in product.variants:
+        if variant.image:
+            await deleteMediaFiles(session, variant.image)
+        session.delete(variant)
+
+    # Delete the product's own media, then the product itself
+    await deleteMediaFiles(session, product.thumbnail, product.images)
+    session.delete(product)
+    session.commit()
+
+    return api_response(200, "Product deleted successfully")
 
 
 @router.get("/read/{id}", response_model=ProductSingleRead)
