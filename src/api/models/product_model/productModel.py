@@ -158,7 +158,6 @@ class ProductVariantBase(SQLModel):
     is_in_stock: Optional[bool]
     image: Optional[MediaRead] = None
     position: int = 0
-    image: Optional[List[MediaRead]]
     attributes: Optional[dict]
 
 
@@ -181,7 +180,7 @@ class ProductForm:
         is_featured: Optional[bool] = Form(False),
         # Media
         thumbnail: Optional[Union[UploadFile, str]] = File(None),
-        images: Optional[List[UploadFile]] = File(None),
+        images: List[UploadFile] = File(default_factory=list),
         delete_images: Optional[List[str]] = Form(None),
         # JSON fields
         attributes: Optional[str] = Form(None),

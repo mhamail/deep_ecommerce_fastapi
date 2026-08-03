@@ -240,7 +240,10 @@ async def uploadMultiMedia(files, session):
     if isinstance(files, list):
         saved_files = await uploadImage(files, thumbnail=False)
         records = entryMedia(session, saved_files)
-        return records
+        return [
+            r.model_dump(include={"id", "filename", "original", "media_type"})
+            for r in records
+        ]
 
 
 async def uploadMediaFiles(session, data: dict, request):
@@ -334,12 +337,7 @@ async def arrangeUpdateMultiMedia(session, existing_files, files, delete_files):
 
     new_uploaded_images = []
     if new_files:
-        records = await uploadMultiMedia(new_files, session)
-
-        new_uploaded_images = [
-            r.model_dump(include={"id", "filename", "original", "media_type"})
-            for r in records
-        ]
+        new_uploaded_images = await uploadMultiMedia(new_files, session)
 
     # ==========================
     # MERGE
