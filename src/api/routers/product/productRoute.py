@@ -106,7 +106,9 @@ async def upsert_product_variants(
             if image_file:
                 if product_variant.image:
                     await deleteMediaFiles(session, product_variant.image)
-                variant["image"] = await uploadSingleMedia(image_file, session)
+                variant["image"] = await uploadSingleMedia(
+                    image_file, session, shop_id=product.shop_id
+                )
 
             _update_variant_from_payload(product_variant, variant)
             session.add(product_variant)
@@ -118,7 +120,9 @@ async def upsert_product_variants(
 
         else:
             if image_file:
-                variant["image"] = await uploadSingleMedia(image_file, session)
+                variant["image"] = await uploadSingleMedia(
+                    image_file, session, shop_id=product.shop_id
+                )
 
             product_variant = ProductVariant(
                 **_variant_payload(
@@ -177,7 +181,7 @@ async def create_product(
 
     data = serialize_obj(request)
 
-    await uploadMediaFiles(session, data, request)
+    await uploadMediaFiles(session, data, request, shop_id=shop_id)
 
     # ==========================
     # Create product
@@ -219,13 +223,19 @@ async def update_product(
 
     if isinstance(request.thumbnail, UploadFile):
         await deleteMediaFiles(session, product.thumbnail)
-        request.thumbnail = await uploadSingleMedia(request.thumbnail, session)
+        request.thumbnail = await uploadSingleMedia(
+            request.thumbnail, session, shop_id=shop_id
+        )
 
     # Run even when there are no new files, as long as something is being
     # removed — a delete-only edit (no new upload) must still persist.
     if request.images or request.delete_images:
         request.images = await arrangeUpdateMultiMedia(
-            session, product.images, request.images, request.delete_images
+            session,
+            product.images,
+            request.images,
+            request.delete_images,
+            shop_id=shop_id,
         )
     else:
         # Neither add nor remove anything — leave the stored list untouched

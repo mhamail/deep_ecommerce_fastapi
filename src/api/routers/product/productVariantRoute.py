@@ -45,7 +45,7 @@ async def create_product(
 
     data = serialize_obj(request)
 
-    await uploadMediaFiles(session, data, request)
+    await uploadMediaFiles(session, data, request, shop_id=shop_id)
 
     # ==========================
     # Add product Variant
@@ -81,7 +81,9 @@ async def update_product_variant(
 
     if isinstance(request.image, UploadFile):
         await deleteMediaFiles(session, productVariant.image)
-        request.image = await uploadSingleMedia(request.image, session)
+        request.image = await uploadSingleMedia(
+            request.image, session, shop_id=shop_id
+        )
 
     # ==========================
     # UPDATE

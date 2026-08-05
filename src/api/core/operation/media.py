@@ -30,7 +30,9 @@ class MediaType(TypedDict):
     media_type: str
 
 
-def entryMedia(session: GetSession, files: List[MediaType]):
+def entryMedia(
+    session: GetSession, files: List[MediaType], shop_id: Optional[int] = None
+):
     records = []
     for file_info in files:
         existing_media = session.scalar(
@@ -45,6 +47,8 @@ def entryMedia(session: GetSession, files: List[MediaType]):
             existing_media.size_mb = file_info["size_mb"]
             existing_media.thumbnail = file_info.get("thumbnail")
             existing_media.media_type = "image"
+            if shop_id is not None:
+                existing_media.shop_id = shop_id
             session.add(existing_media)
             records.append(existing_media)
         else:
@@ -56,6 +60,7 @@ def entryMedia(session: GetSession, files: List[MediaType]):
                 size_mb=file_info["size_mb"],
                 thumbnail=file_info.get("thumbnail"),
                 media_type="image",
+                shop_id=shop_id,
             )
             session.add(media)
             session.flush()  # ensures ID assigned
@@ -214,12 +219,12 @@ def delete_media_items(
     }
 
 
-async def uploadSingleMedia(file, session):
+async def uploadSingleMedia(file, session, shop_id: Optional[int] = None):
     if isinstance(file, UploadFile):
         files = [file]
         saved_files = await uploadImage(files, thumbnail=False)
 
-        records = entryMedia(session, saved_files)
+        records = entryMedia(session, saved_files, shop_id=shop_id)
 
         return records[0].model_dump(
             include={"id", "filename", "original", "media_type"}
@@ -236,17 +241,17 @@ async def uploadSingleMedia(file, session):
     return None
 
 
-async def uploadMultiMedia(files, session):
+async def uploadMultiMedia(files, session, shop_id: Optional[int] = None):
     if isinstance(files, list):
         saved_files = await uploadImage(files, thumbnail=False)
-        records = entryMedia(session, saved_files)
+        records = entryMedia(session, saved_files, shop_id=shop_id)
         return [
             r.model_dump(include={"id", "filename", "original", "media_type"})
             for r in records
         ]
 
 
-async def uploadMediaFiles(session, data: dict, request):
+async def uploadMediaFiles(session, data: dict, request, shop_id: Optional[int] = None):
     for field, new_value in vars(request).items():
 
         # skip empty
@@ -257,7 +262,7 @@ async def uploadMediaFiles(session, data: dict, request):
         # SINGLE FILE
         # -------------------------
         if isinstance(new_value, (UploadFile, str)):
-            uploaded = await uploadSingleMedia(new_value, session)
+            uploaded = await uploadSingleMedia(new_value, session, shop_id=shop_id)
 
             if uploaded:
                 data[field] = uploaded
@@ -268,7 +273,9 @@ async def uploadMediaFiles(session, data: dict, request):
         elif isinstance(new_value, list):
             if any(isinstance(i, UploadFile) for i in new_value):
 
-                uploaded_list = await uploadMultiMedia(new_value, session)
+                uploaded_list = await uploadMultiMedia(
+                    new_value, session, shop_id=shop_id
+                )
 
                 if uploaded_list:
                     data[field] = uploaded_list
@@ -315,7 +322,9 @@ async def deleteMediaFiles(
     return {"deleted": [], "message": "No files to delete"}
 
 
-async def arrangeUpdateMultiMedia(session, existing_files, files, delete_files):
+async def arrangeUpdateMultiMedia(
+    session, existing_files, files, delete_files, shop_id: Optional[int] = None
+):
     existing_files = existing_files or []
 
     # ==========================
@@ -337,7 +346,7 @@ async def arrangeUpdateMultiMedia(session, existing_files, files, delete_files):
 
     new_uploaded_images = []
     if new_files:
-        new_uploaded_images = await uploadMultiMedia(new_files, session)
+        new_uploaded_images = await uploadMultiMedia(new_files, session, shop_id=shop_id)
 
     # ==========================
     # MERGE

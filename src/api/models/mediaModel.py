@@ -16,6 +16,7 @@ class Media(TimeStampedModel, table=True):
     media_type: str  # "image" | "video" | "doc"
     size_mb: Optional[float] = Field(default=None)
     thumbnail: Optional[str] = Field(default=None)
+    shop_id: Optional[int] = Field(default=None, foreign_key="shops.id")
 
 
 class MediaRead(BaseModel):
@@ -26,6 +27,7 @@ class MediaRead(BaseModel):
     # size_mb: Optional[float] = None
     thumbnail: Optional[str] = None
     media_type: str
+    shop_id: Optional[int] = None
 
     @field_serializer("original")
     def add_domain_to_url(self, v: Optional[str], _info):
