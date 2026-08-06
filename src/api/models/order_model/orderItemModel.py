@@ -1,3 +1,4 @@
+from enum import Enum
 from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import Column, JSON
@@ -7,6 +8,14 @@ from src.api.models.baseModel import TimeStampedModel
 
 if TYPE_CHECKING:
     from src.api.models import Order
+
+
+class OrderItemStatus(str, Enum):
+    pending = "pending"
+    processing = "processing"
+    shipped = "shipped"
+    delivered = "delivered"
+    cancelled = "cancelled"
 
 
 class OrderItem(TimeStampedModel, table=True):
@@ -30,13 +39,20 @@ class OrderItem(TimeStampedModel, table=True):
 
     product_name: str
 
+    # Fulfillment status lives per line item (not on the parent Order) since
+    # a single order can span multiple shops, and each shop only controls
+    # fulfillment of its own items.
+    status: str = Field(default=OrderItemStatus.pending.value, index=True)
+
     quantity: int
 
     price: float
     actual_price: float
 
-    variant_attributes: list | None = Field(
-        default_factory=list,
+    # Snapshot of the variant's attributes dict at order time (matches
+    # ProductVariant.attributes / CartItem.variant_attributes, both dicts).
+    variant_attributes: dict | None = Field(
+        default=None,
         sa_column=Column(JSON),
     )
 
@@ -56,6 +72,7 @@ class OrderItemsRead(SQLModel):
     shop_id: Optional[int] = None
     product_variant_id: Optional[int] = None
     product_name: str
+    status: str
     variant_attributes: Optional[dict] = None
     price: float
     actual_price: Optional[float] = None
@@ -64,3 +81,7 @@ class OrderItemsRead(SQLModel):
 
     class Config:
         from_attributes = True
+
+
+class OrderItemStatusUpdate(SQLModel):
+    status: OrderItemStatus

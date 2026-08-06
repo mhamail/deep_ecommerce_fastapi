@@ -36,8 +36,8 @@ class Order(TimeStampedModel, table=True):
     discount: float = Field(default=0)
     total: float = Field(default=0)
 
-    # Status
-    status: str = Field(default="pending", index=True)
+    # Status — payment only. Fulfillment status lives per-shop on OrderItem
+    # since one order can span multiple shops.
     payment_status: str = Field(default="pending")
 
     # Address (snapshot)
@@ -60,7 +60,6 @@ class OrderRead(SQLModel, TimeStampReadModel):
     subtotal: float
     discount: float
     total: float
-    status: str
     payment_status: str
     shipping_address: Optional[dict] = None
     items: List[OrderItemsRead] = []
@@ -86,7 +85,6 @@ class OrderCreate(SQLModel):
 
     # ── Shared ────────────────────────────────────────────────────────────────
     discount: Optional[float] = 0
-    status: Optional[str] = "pending"
     payment_status: Optional[str] = "pending"
     shipping_address: Optional[AddressDetail] = {
         "details": "",

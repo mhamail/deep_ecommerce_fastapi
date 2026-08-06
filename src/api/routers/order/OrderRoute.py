@@ -306,18 +306,28 @@ def read_order(id: int, session: GetSession, user: requireSignin):
 @router.get("/read/admin/{id}", response_model=OrderRead)
 def read_order(id: int, session: GetSession, user: requireAdmin):
 
-    order = session.get(Order, id).first()
+    order = session.get(Order, id)
     raiseExceptions((order, 404, "Order not found"))
     return api_response(200, "Order Found", OrderRead.model_validate(order))
 
 
 @router.delete("/delete/{id}")
 def delete_order(id: int, session: GetSession, user: requireDefaultShop):
+    # Order has no shop_id of its own (an order can span multiple shops) —
+    # scope through its items instead. Deleting the order cascades to ALL of
+    # its items regardless of shop, so only allow this when every item in
+    # the order belongs to the caller's shop.
     shop_id = user.get("default_shop_id")
     order = session.exec(
-        select(Order).where(Order.id == id, Order.shop_id == shop_id)
+        select(Order).join(OrderItem).where(Order.id == id, OrderItem.shop_id == shop_id)
     ).first()
     raiseExceptions((order, 404, "Order not found"))
+    other_shop_item = session.exec(
+        select(OrderItem).where(OrderItem.order_id == id, OrderItem.shop_id != shop_id)
+    ).first()
+    raiseExceptions(
+        (not other_shop_item, 403, "Order has items from other shops and can't be deleted here")
+    )
     session.delete(order)
     session.commit()
     return api_response(200, f"Order {order.order_number} deleted")
@@ -326,7 +336,7 @@ def delete_order(id: int, session: GetSession, user: requireDefaultShop):
 @router.get("/list", response_model=list[OrderRead])
 def list_orders(query_params: ListQueryParams, user: requireSignin):
     query_params = vars(query_params)
-    searchFields = ["order_number", "status", "payment_status"]
+    searchFields = ["order_number", "payment_status"]
     return listRecords(
         query_params=query_params,
         searchFields=searchFields,
