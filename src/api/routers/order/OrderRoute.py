@@ -336,7 +336,7 @@ def delete_order(id: int, session: GetSession, user: requireDefaultShop):
 @router.get("/list", response_model=list[OrderRead])
 def list_orders(query_params: ListQueryParams, user: requireSignin):
     query_params = vars(query_params)
-    searchFields = ["order_number", "payment_status"]
+    searchFields = ["order_number"]
     return listRecords(
         query_params=query_params,
         searchFields=searchFields,
