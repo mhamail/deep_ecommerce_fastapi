@@ -9,13 +9,10 @@ from sqlalchemy.orm import selectinload
 from src.api.core.operation import listop
 from src.api.core.operation.media import delete_media_items, entryMedia, uploadImage
 from src.api.core.security import (
-    create_access_token,
     hash_password,
     require_signin_user,
 )
-from src.api.core.smtp import send_email
-from src.api.routers.auth.authRoute import exist_verified_email
-from src.config import DOMAIN
+from src.api.routers.auth.authRoute import exist_verified_email, send_verification_email
 from src.api.core import updateOp, requireSignin
 from src.api.core.dependencies import GetSession, requireAdmin
 from src.api.core.response import api_response, raiseExceptions
@@ -112,19 +109,8 @@ async def update_user(
     if request.phone and request.phone != user.get("phone"):
         updated_user.verified = False
     if request.email and request.email != user.get("email"):
-
-        # ✅ Create JWT token
-        verify_token = create_access_token({"id": db_user.id, "email": db_user.email})
         updated_user.email_verified = False
-        # Load template
-        verify_url = f"{DOMAIN}/api/verify-email?verify_token={verify_token}"
-        with open("src/templates/email_verification.html") as f:
-            html_template = f.read().replace("{{VERIFY_URL}}", verify_url)
-        send_email(
-            to_email=db_user.email,
-            subject="Verify Your Email Address",
-            body=html_template,
-        )
+        send_verification_email(db_user)
 
     session.commit()
     session.refresh(updated_user)
