@@ -1,8 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from random import randint
-from typing import Annotated
 
-from fastapi import APIRouter, Body, Depends, Request, Response
+from fastapi import APIRouter, Body, Depends, Response
 from jose import jwt
 from pydantic import EmailStr
 from sqlmodel import or_, select
@@ -175,34 +174,11 @@ def login_user(
     if not user.is_active:
         return api_response(403, "User account is disabled")
 
-    # Use properties instead of user.roles
-    # user_dict = user_read.model_dump()
-    # print({"============user_dict": user_dict})
-    # roles = (
-    #     user_dict["roles"] if "roles" in user_dict and len(user_dict["roles"]) else None
-    # )
-    # shop = user_dict["shop"] if "shop" in user_dict and user_dict["shop"] else None
-    # shops_member = (
-    #     user_dict["shops_member"]
-    #     if "shops_member" in user_dict and len(user_dict["shops_member"])
-    #     else None
-    # )
-    # default_shop = validate_default_shop(user_dict)
-    # print({"default_shop": default_shop, "shop": shop, "shops_member": shops_member})
+    # JWT payload stays minimal (just the id) — require_signin_user fetches
+    # the full profile (roles, shop, permissions) fresh from the DB on every
+    # request, so it can't go stale between login and token expiry.
+    user_data = {"id": user.id}
 
-    user_data = {
-        "id": user.id,
-        # "email": user.email,
-        # "phone": user.phone or None,
-        # "is_root": user.is_root or False,
-        # "verified": user.verified or False,
-        # "roles": roles,
-        # "shop": shop,
-        # "shops_member": shops_member,
-        # "default_shop": default_shop,
-    }
-
-    # Print(user_data)
     access_token = create_access_token(
         user_data=user_data, token_version=user.token_version
     )
@@ -243,8 +219,6 @@ def exist_verified_email(session, email: str) -> bool:
             User.email_verified == True,
         )
     ).first()
-    print({"user===========": user})
-    print(email)
     return True if user else False
 
 

@@ -1,39 +1,57 @@
-# User Model # Relationships
+# Multi-Role / Multi-Shop Permission Model
 
+> 📌 For the full request-by-request flow (JWT → user_data → permission
+> check), see [`security_flow_docai.md`](./security_flow_docai.md). This file
+> is the data model + the permission-check building blocks only.
+
+## User Model — Relationships
+
+```py
 user_roles: list["UserRole"] = Relationship(back_populates="user")
+```
 
-# Role Model
+## Role Model
 
 ```py
 class Role(TimeStampedModel, table=True):
-**tablename** = "roles"
-id: Optional[int] = Field(default=None, primary_key=True)
-name: str = Field(max_length=50, unique=True)
-slug: str = Field(max_length=60, unique=True, index=True)
-description: Optional[str] = None
-permissions: list[str] = Field(
-default_factory=list,
-sa_type=JSON,
-)
-user_id: int = Field(foreign_key="users.id")
-is_active: bool = Field(default=True) # relationships
-user_roles: list["UserRole"] = Relationship(back_populates="role")
+    __tablename__ = "roles"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str = Field(max_length=50, unique=True)
+    slug: str = Field(max_length=60, unique=True, index=True)
+    description: Optional[str] = None
+    permissions: list[str] = Field(
+        default_factory=list,
+        sa_type=JSON,
+    )
+    user_id: int = Field(foreign_key="users.id")
+    is_active: bool = Field(default=True)
+
+    # relationships
+    user_roles: list["UserRole"] = Relationship(back_populates="role")
 
     @property
     def roles(self):
         """Return roles directly (not UserRole objects)."""
         return [ur.role for ur in self.user_roles if ur.role]
+```
 
+## UserRole — Join Table (many-to-many between User and Role)
+
+A `Role` can carry a `shop_id` (see `require_shop_permission` below), which is
+what makes the same user able to hold different roles on different shops —
+"Shop Admin" on shop A, plain "Member" on shop B, etc.
+
+```py
 if TYPE_CHECKING:
-from src.api.models.userModel import User
-from src.api.models.role_model.roleModel import Role
+    from src.api.models.userModel import User
+    from src.api.models.role_model.roleModel import Role
 
-# Database Table Model
 
 class UserRole(TimeStampedModel, table=True):
-**tablename** = "user_roles"
+    __tablename__ = "user_roles"
 
-    id: Optional[int] = Field(default=None, primary_key=True)  # type: ignore
+    id: Optional[int] = Field(default=None, primary_key=True)
     user_id: int = Field(foreign_key="users.id")
     role_id: int = Field(foreign_key="roles.id")
 
@@ -42,49 +60,17 @@ class UserRole(TimeStampedModel, table=True):
     role: "Role" = Relationship(back_populates="user_roles")
 ```
 
-## Security
+## Security — Permission-Check Building Blocks
+
+All of these depend on `require_signin_user` (defined in
+`src/api/core/security.py`), which does ONE DB query — decode JWT, fetch the
+user with roles/shop/shop_memberships eagerly loaded via `selectinload`, and
+check `token_version` — then caches the result on `request.state` for the
+rest of the request. See `operation_security_docai.md`'s Security section for
+the full current implementation; the snippets below are just the
+permission-check helpers built on top of it.
 
 ```py
-
-def require_signin(
-    credentials: HTTPAuthorizationCredentials = Security(HTTPBearer()),
-) -> Dict:
-    token = credentials.credentials  # Extract token from Authorization header
-
-    try:
-        payload = jwt.decode(
-            token,
-            SECRET_KEY,
-            algorithms=[ALGORITHM],
-        )
-        user = payload.get("user")
-
-        if user is None:
-            api_response(
-                status.HTTP_401_UNAUTHORIZED,
-                "Invalid token: no user data",
-            )
-
-        if payload.get("refresh") is True:
-            api_response(
-                401,
-                "Refresh token is not allowed for this route",
-            )
-
-        return user  # contains {"email": ..., "id": ...}
-
-    except JWTError as e:
-        print(e)
-        return api_response(status.HTTP_401_UNAUTHORIZED, "Invalid token", data=str(e))
-
-def verified_user(user: dict = Depends(require_signin)):
-    if user.get("verified") is False or user.get("phone") is None:
-        api_response(
-            status.HTTP_423_LOCKED,
-            "User is not verified",
-        )
-    return user
-
 def get_user_permissions(user: dict) -> set[str]:
     roles = user.get("roles", [])
 
@@ -101,7 +87,7 @@ def has_role(user: dict, role_name: str) -> bool:
 
 
 def require_admin(
-    user: dict = Depends(require_signin),
+    user: dict = Depends(require_signin_user),
 ):
     try:
         roles = user.get("roles", [])
@@ -136,7 +122,7 @@ def require_admin(
 
 def require_permission(*permissions: str):
     def permission_checker(
-        user: dict = Depends(require_signin),
+        user: dict = Depends(require_signin_user),
     ):
         roles = user.get("roles", [])
 
@@ -145,7 +131,7 @@ def require_permission(*permissions: str):
 
         user_permissions = get_user_permissions(user)
 
-        # ✅ सुपर admin shortcut
+        # ✅ admin shortcut
         if "system:*" in user_permissions:
             return user
 
@@ -157,9 +143,33 @@ def require_permission(*permissions: str):
 
     return permission_checker
 
+
+# Shop-scoped variant — a Role can carry a shop_id, so this only grants
+# access when the matching role's shop_id equals the caller's default shop.
+def require_shop_permission(*permissions: str):
+    def checker(user: dict = Depends(require_default_shop)):
+        default_shop = user.get("default_shop")
+        default_shop_id = (
+            default_shop["id"] if isinstance(default_shop, dict) else default_shop.id
+        )
+
+        roles = user.get("roles", [])
+        user_permissions = get_user_permissions(user)
+
+        for role in roles:
+            if role.get("shop_id") != default_shop_id:
+                continue
+            if "shop:*" in user_permissions:
+                return user
+            if any(p in user_permissions for p in permissions):
+                return user
+
+        return api_response(403, "Permission denied")
+
+    return checker
 ```
 
-# Test Auth
+## Test Auth
 
 ```py
 @router.get("/testauth", response_model=dict)

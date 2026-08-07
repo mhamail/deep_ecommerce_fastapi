@@ -94,6 +94,9 @@ class Media(TimeStampedModel, table=True):
     media_type: str  # "image" | "video" | "doc"
     size_mb: Optional[float] = Field(default=None)
     thumbnail: Optional[str] = Field(default=None)
+    # Which shop this media belongs to (products/variants pass this through
+    # so media can be scoped/filtered/cleaned-up per shop later).
+    shop_id: Optional[int] = Field(default=None, foreign_key="shops.id")
 
 
 class MediaRead(BaseModel):
@@ -104,6 +107,7 @@ class MediaRead(BaseModel):
     # size_mb: Optional[float] = None
     thumbnail: Optional[str] = None
     media_type: str
+    shop_id: Optional[int] = None
 
     @field_serializer("original")
     def add_domain_to_url(self, v: Optional[str], _info):
@@ -121,16 +125,17 @@ import os
 import time
 from src.api.core.response import api_response
 from PIL import Image, UnidentifiedImageError, ImageOps
+from starlette.datastructures import UploadFile
 
 from src.api.core.dependencies import GetSession
 from src.api.models.mediaModel import Media
 from sqlalchemy import func
 import os
-from typing import List, Optional, TypedDict
+from typing import Any, List, Optional, TypedDict, Union
 from sqlmodel import select
 
 BASE_DIR = "/var/www"
-SUB_DIR = "travelmedia"
+SUB_DIR = "buyagainmedia"
 MEDIA_DIR = os.path.join(BASE_DIR, SUB_DIR)
 
 ALLOWED_RAW_EXT = [".webp", ".avif", ".ico", ".svg"]
@@ -147,13 +152,14 @@ class MediaType(TypedDict):
     thumbnail: Optional[str]
     media_type: str
 
-def entryMedia(session: GetSession, files: List[MediaType]):
+def entryMedia(
+    session: GetSession, files: List[MediaType], shop_id: Optional[int] = None
+):
     records = []
     for file_info in files:
         existing_media = session.scalar(
             select(Media).where(Media.filename == file_info["filename"])
         )
-        print(existing_media)
 
         if existing_media:
             # ✅ Update existing record
@@ -162,6 +168,11 @@ def entryMedia(session: GetSession, files: List[MediaType]):
             existing_media.size_mb = file_info["size_mb"]
             existing_media.thumbnail = file_info.get("thumbnail")
             existing_media.media_type = "image"
+            # Only overwrite shop_id when a caller actually passes one —
+            # otherwise an unrelated re-upload of the same filename would
+            # silently null out an existing shop_id.
+            if shop_id is not None:
+                existing_media.shop_id = shop_id
             session.add(existing_media)
             records.append(existing_media)
         else:
@@ -173,6 +184,7 @@ def entryMedia(session: GetSession, files: List[MediaType]):
                 size_mb=file_info["size_mb"],
                 thumbnail=file_info.get("thumbnail"),
                 media_type="image",
+                shop_id=shop_id,
             )
             session.add(media)
             session.flush()  # ensures ID assigned
@@ -331,12 +343,12 @@ def delete_media_items(
     }
 
 
-async def uploadSingleMedia(file, session):
+async def uploadSingleMedia(file, session, shop_id: Optional[int] = None):
     if isinstance(file, UploadFile):
         files = [file]
         saved_files = await uploadImage(files, thumbnail=False)
 
-        records = entryMedia(session, saved_files)
+        records = entryMedia(session, saved_files, shop_id=shop_id)
 
         return records[0].model_dump(
             include={"id", "filename", "original", "media_type"}
@@ -353,14 +365,22 @@ async def uploadSingleMedia(file, session):
     return None
 
 
-async def uploadMultiMedia(files, session):
+# ⚠️ Must return plain dicts (via model_dump), same as uploadSingleMedia —
+# these results get JSON-encoded straight into a JSON column later. Returning
+# raw ORM `Media` objects here caused "Object of type Media is not JSON
+# serializable" on product create (multi-image field), since the caller had
+# no reason to re-serialize a value that already looked "done".
+async def uploadMultiMedia(files, session, shop_id: Optional[int] = None):
     if isinstance(files, list):
         saved_files = await uploadImage(files, thumbnail=False)
-        records = entryMedia(session, saved_files)
-        return records
+        records = entryMedia(session, saved_files, shop_id=shop_id)
+        return [
+            r.model_dump(include={"id", "filename", "original", "media_type"})
+            for r in records
+        ]
 
 
-async def uploadMediaFiles(session, data: dict, request):
+async def uploadMediaFiles(session, data: dict, request, shop_id: Optional[int] = None):
     for field, new_value in vars(request).items():
 
         # skip empty
@@ -371,7 +391,7 @@ async def uploadMediaFiles(session, data: dict, request):
         # SINGLE FILE
         # -------------------------
         if isinstance(new_value, (UploadFile, str)):
-            uploaded = await uploadSingleMedia(new_value, session)
+            uploaded = await uploadSingleMedia(new_value, session, shop_id=shop_id)
 
             if uploaded:
                 data[field] = uploaded
@@ -382,7 +402,9 @@ async def uploadMediaFiles(session, data: dict, request):
         elif isinstance(new_value, list):
             if any(isinstance(i, UploadFile) for i in new_value):
 
-                uploaded_list = await uploadMultiMedia(new_value, session)
+                uploaded_list = await uploadMultiMedia(
+                    new_value, session, shop_id=shop_id
+                )
 
                 if uploaded_list:
                     data[field] = uploaded_list
@@ -437,13 +459,20 @@ async def deleteMediaFiles(
 
 <!-- ///////////////////////////////////// -->
 
+> ⚠️ **Gotcha:** never type a multi-file field as `Optional[List[UploadFile]] = File(None)`.
+> That makes the OpenAPI schema nullable (`anyOf`), and Swagger UI falls back to
+> rendering a plain text box instead of a file-upload widget — anything typed into
+> that box then fails validation on the backend. Use `List[UploadFile] = File(default_factory=list)`
+> instead: still optional (empty list when nothing is sent), but keeps a clean
+> "array of file" schema so Swagger renders real file pickers.
+
 ```py
 class UserRideForm:
     def __init__(
         self,
         # file upload
         car_pic: Optional[Union[UploadFile, str]] = File(None),
-        other_images: List[UploadFile] = File(default=[]),
+        other_images: List[UploadFile] = File(default_factory=list),
         delete_images: Optional[List[str]] = Form(None),
     ):
         # Convert empty → None
@@ -515,6 +544,10 @@ class UserRideForm:
 
 // =======================================
 
+> 📌 For the conceptual flow (what calls what, and why), see
+> [`security_flow_docai.md`](./security_flow_docai.md). This section is just
+> the current reference implementation.
+
 ```py
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
@@ -539,9 +572,7 @@ from fastapi.security import (
 from src.api.models.shop_model.shopModel import Shop
 from src.api.models.role_model.roleModel import Role
 from src.api.models.shop_model.ShopChildModel import ShopUser
-from src.api.core.utility import Print
 from src.api.models.role_model.userRoleModel import UserRole
-from src.api.routers.auth.function import validate_default_shop
 from src.lib.db_con import get_session
 from src.api.models.userModel import User, UserRead
 from sqlalchemy.orm import selectinload
@@ -577,7 +608,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 def create_access_token(
     user_data: dict,
-    token_version: Optional[int] = int,
+    token_version: Optional[int] = None,
     refresh: Optional[bool] = False,
     expires: Optional[timedelta] = None,
 ):
@@ -591,7 +622,7 @@ def create_access_token(
 
     payload = {
         "user": user_data,
-        "exp": expire,
+        "exp": int(expire.timestamp()),
         "refresh": refresh,
         "token_version": token_version,
     }
@@ -656,6 +687,10 @@ def is_authenticated(authorization: Optional[str] = Header(None)):
         return None
 
 
+# require_signin: light check only — decode + confirm the DB row still
+# exists and token_version matches (session-invalidation check). Used
+# standalone where you only need "is this a valid, non-revoked token", not
+# the full profile (e.g. is_authenticated-style routes).
 def require_signin(
     session: Session = Depends(get_session),
     credentials: HTTPAuthorizationCredentials = Security(HTTPBearer()),
@@ -698,15 +733,43 @@ def require_signin(
         return api_response(status.HTTP_401_UNAUTHORIZED, "Invalid token", data=str(e))
 
 
+# require_signin_user: the workhorse most permission checks build on.
+# Decodes the JWT itself (does NOT depend on require_signin — that used to
+# cause a duplicate user lookup, one lightweight query in require_signin
+# just to check token_version, then this function ran a second, heavier
+# query for the same user right after). Now it's ONE query total: fetch the
+# user plus roles → role, shop, and shop_memberships → shop, all via
+# selectinload, then check token_version against the already-loaded row.
+# Also caches onto `request.state` so multiple Depends() in the same
+# request (e.g. a route depending on both requireSignin-style checks and a
+# permission check) don't re-hit the DB.
 def require_signin_user(
     request: Request,
-    user: dict = Depends(require_signin),
+    credentials: HTTPAuthorizationCredentials = Security(HTTPBearer()),
     session: Session = Depends(get_session),
 ):
     # ✅ CACHE inside request (IMPORTANT)
     if hasattr(request.state, "user_data"):
         return request.state.user_data
-    user_id = user.get("id")
+
+    token = credentials.credentials
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    except JWTError as e:
+        return api_response(status.HTTP_401_UNAUTHORIZED, "Invalid token", data=str(e))
+
+    token_user = payload.get("user")
+    if token_user is None:
+        return api_response(
+            status.HTTP_401_UNAUTHORIZED, "Invalid token: no user data"
+        )
+
+    if payload.get("refresh") is True:
+        return api_response(
+            401, "Refresh token is not allowed for this route"
+        )
+
+    user_id = token_user.get("id")
 
     db_user = (
         session.exec(
@@ -732,6 +795,9 @@ def require_signin_user(
     )  # Like findById
     raiseExceptions((db_user, 400, "User not found"))
 
+    if db_user.token_version != payload.get("token_version"):
+        return api_response(401, "Session expired. Please login again.")
+
     # build your user_data ONCE
     user_data = {
         "id": db_user.id,
@@ -741,6 +807,7 @@ def require_signin_user(
         "roles": db_user.roles,
         "shop": db_user.shop,
         "shops_member": db_user.shop_memberships,
+        "default_shop_id": db_user.default_shop_id,
         "default_shop": db_user.default_shop,
         "is_root": db_user.is_root,
     }
@@ -834,8 +901,6 @@ def require_permission(*permissions: str):
             else:
                 flat_permissions.append(p)
 
-        print("====", user_permissions, flat_permissions)
-
         # ✅ Match ANY permission
         if any(p in user_permissions for p in flat_permissions):
             return user
@@ -891,7 +956,6 @@ def require_shop_permission(*permissions: str):
 
         user_permissions = get_user_permissions(user)
 
-        print("==================", roles, default_shop_id)
         # ✅ admin shortcut
         for role in roles:
             if role.get("shop_id") != default_shop_id:
