@@ -26,13 +26,13 @@ from src.api.core.utility import Print
 from src.api.models.role_model.userRoleModel import UserRole
 from src.api.routers.auth.function import validate_default_shop
 from src.lib.db_con import get_session
+from src.lib.redis_con import cache_get, cache_set, clear_hash
 from src.api.models.userModel import User, UserRead
 from sqlalchemy.orm import selectinload
 
 
 from src.config import SECRET_KEY, ACCESS_TOKEN_EXPIRE
 from src.api.core.response import api_response, raiseExceptions
-
 
 ALGORITHM = "HS256"
 
@@ -181,6 +181,26 @@ def require_signin(
         return api_response(status.HTTP_401_UNAUTHORIZED, "Invalid token", data=str(e))
 
 
+# Cache TTL is a safety net only — the real invalidation is the explicit
+# invalidate_user_session() call at every place that changes what's cached
+# (profile update, role assign/unassign, shop membership change). Any code
+# that changes `token_version` MUST call invalidate_user_session for that
+# user, otherwise a revoked token could keep working off a stale cache entry
+# until this TTL expires.
+USER_SESSION_CACHE_TTL = 300  # seconds
+
+
+def _user_session_key(user_id: int) -> str:
+    return f"user_session:{user_id}"
+
+
+def invalidate_user_session(user_id: int) -> None:
+    """Call this anywhere a user's roles, shop membership, token_version, or
+    profile changes — e.g. after updating a user, assigning/removing a role,
+    or adding/removing them from a shop."""
+    clear_hash(_user_session_key(user_id))
+
+
 def require_signin_user(
     request: Request,
     credentials: HTTPAuthorizationCredentials = Security(HTTPBearer()),
@@ -198,20 +218,27 @@ def require_signin_user(
 
     token_user = payload.get("user")
     if token_user is None:
-        return api_response(
-            status.HTTP_401_UNAUTHORIZED, "Invalid token: no user data"
-        )
+        return api_response(status.HTTP_401_UNAUTHORIZED, "Invalid token: no user data")
 
     if payload.get("refresh") is True:
-        return api_response(
-            401, "Refresh token is not allowed for this route"
-        )
+        return api_response(401, "Refresh token is not allowed for this route")
 
     user_id = token_user.get("id")
+    token_version = payload.get("token_version")
 
-    # ✅ single query: fetch user + roles + shop + shop_memberships together
-    # (this replaces the separate lightweight user lookup that require_signin
-    # used to do just to check token_version — same check, one DB round trip)
+    # ✅ Redis cache — one hash per user, single "profile" field. A hit is
+    # only trusted if its token_version still matches THIS token's payload —
+    # that's what keeps "Session expired" revocation working through the cache.
+    cache_key = _user_session_key(user_id)
+    cached = cache_get(cache_key, "profile")
+    if cached and cached.get("token_version") == token_version:
+        request.state.user_data = cached
+        return cached
+
+    # single query: fetch user + roles + shop + shop_memberships + default_shop
+    # together (this replaces the separate lightweight user lookup that
+    # require_signin used to do just to check token_version — same check,
+    # one DB round trip)
     db_user = (
         session.exec(
             select(User)
@@ -228,6 +255,7 @@ def require_signin_user(
                 selectinload(User.shop_memberships)
                 .selectinload(ShopUser.shop)
                 .load_only(Shop.id, Shop.name),
+                selectinload(User.default_shop).load_only(Shop.id, Shop.name),
             )
             .where(User.id == user_id)
         )
@@ -236,22 +264,36 @@ def require_signin_user(
     )  # Like findById
     raiseExceptions((db_user, 400, "User not found"))
 
-    if db_user.token_version != payload.get("token_version"):
+    if db_user.token_version != token_version:
         return api_response(401, "Session expired. Please login again.")
 
-    # build your user_data ONCE
+    # build your user_data ONCE — flatten ORM relationship objects into plain
+    # dicts so this is JSON-serializable for the cache (roles is already a
+    # dict via the User.roles property, but shop/default_shop/shop_memberships
+    # are still ORM objects).
     user_data = {
         "id": db_user.id,
         "email": db_user.email,
         "phone": db_user.phone or None,
         "verified": db_user.verified or False,
         "roles": db_user.roles,
-        "shop": db_user.shop,
-        "shops_member": db_user.shop_memberships,
+        "shop": (
+            db_user.shop.model_dump(include={"id", "name"}) if db_user.shop else None
+        ),
+        "shops_member": [
+            s.model_dump(include={"id", "name"}) for s in db_user.shops_member
+        ],
         "default_shop_id": db_user.default_shop_id,
-        "default_shop": db_user.default_shop,
+        "default_shop": (
+            db_user.default_shop.model_dump(include={"id", "name"})
+            if db_user.default_shop
+            else None
+        ),
         "is_root": db_user.is_root,
+        "token_version": token_version,
     }
+
+    cache_set(cache_key, "profile", user_data, ttl=USER_SESSION_CACHE_TTL)
 
     # 🔥 store in request cache
     request.state.user_data = user_data
@@ -367,8 +409,6 @@ def require_shop_admin(user: dict = Depends(require_signin_user)):
 
     user_permissions = get_user_permissions(user)
 
-    print("==================", roles, user_permissions)
-
     is_admin = any(
         "shop:*" in user_permissions and r.get("shop_id") == default_shop_id
         for r in roles
@@ -401,7 +441,6 @@ def require_shop_permission(*permissions: str):
 
         user_permissions = get_user_permissions(user)
 
-        print("==================", roles, default_shop_id)
         # ✅ admin shortcut
         for role in roles:
             if role.get("shop_id") != default_shop_id:

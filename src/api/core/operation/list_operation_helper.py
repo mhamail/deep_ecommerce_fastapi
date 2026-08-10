@@ -625,8 +625,6 @@ def applyFilters(
             ):
                 parsed = [parsed]
 
-            print("<<<=================================>>>", parsed)
-
             statement = deep_filter(statement, Model, parsed)
 
         except Exception as e:

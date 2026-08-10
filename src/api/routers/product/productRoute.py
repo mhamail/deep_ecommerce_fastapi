@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Request, UploadFile
+from fastapi import APIRouter, Depends, Request
 from starlette.datastructures import UploadFile as FormUploadFile
 from sqlalchemy.orm import joinedload, selectinload
 from sqlmodel import delete, exists, select
@@ -221,8 +221,9 @@ async def update_product(
     if request.name:
         request.slug = uniqueSlugify(session, Product, request.name)
 
-    if isinstance(request.thumbnail, UploadFile):
-        await deleteMediaFiles(session, product.thumbnail)
+    if isinstance(request.thumbnail, FormUploadFile):
+        if product.thumbnail:
+            await deleteMediaFiles(session, product.thumbnail)
         request.thumbnail = await uploadSingleMedia(
             request.thumbnail, session, shop_id=shop_id
         )

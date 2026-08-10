@@ -10,8 +10,8 @@ from os import getenv
 from pydantic import ValidationError
 from sqlmodel import SQLModel, create_engine
 
-DATABASE_URL = getenv("DATABASE_URL", "sqlite:///./database.db")
-engine = create_engine(DATABASE_URL, echo=True)
+# DATABASE_URL = getenv("DATABASE_URL", "sqlite:///./database.db")
+# engine = create_engine(DATABASE_URL, echo=True)
 
 from src.api.routers.product import productRoute, productVariantRoute
 from src.api.routers.order import OrderRoute, orderItemRoute

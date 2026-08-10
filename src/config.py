@@ -20,6 +20,8 @@ ACCESS_TOKEN_EXPIRE = int(
 )
 DOMAIN = os.getenv("DOMAIN")
 
+REDIS_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0")
+
 
 # Email
 SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")

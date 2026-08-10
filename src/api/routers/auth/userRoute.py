@@ -10,6 +10,7 @@ from src.api.core.operation import listop
 from src.api.core.operation.media import delete_media_items, entryMedia, uploadImage
 from src.api.core.security import (
     hash_password,
+    invalidate_user_session,
     require_signin_user,
 )
 from src.api.routers.auth.authRoute import exist_verified_email, send_verification_email
@@ -114,6 +115,7 @@ async def update_user(
 
     session.commit()
     session.refresh(updated_user)
+    invalidate_user_session(user_id)
     return api_response(
         200, "User Update Successfully", UserRead.model_validate(updated_user)
     )
@@ -137,6 +139,7 @@ def update_user(
 
     session.commit()
     session.refresh(db_user)
+    invalidate_user_session(user_id)
     return api_response(200, "User Found", UserRead.model_validate(db_user))
 
 

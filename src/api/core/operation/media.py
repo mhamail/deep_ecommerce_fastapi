@@ -85,6 +85,8 @@ async def uploadImage(files, thumbnail, unique=True):
 
         # RAW image handling
         if ext in ALLOWED_RAW_EXT:
+            output_filename = base_name + ext
+            file_path = os.path.join(MEDIA_DIR, output_filename)
             with open(file_path, "wb") as buffer:
                 buffer.write(await file.read())
         else:

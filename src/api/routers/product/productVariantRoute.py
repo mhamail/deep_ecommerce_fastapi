@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, UploadFile
+from fastapi import APIRouter, Depends
+from starlette.datastructures import UploadFile as FormUploadFile
 from sqlmodel import delete, func, select
 from src.api.models.cart_model.cartItemModel import CartItem
 from src.api.core.operation import listRecords, serialize_obj, updateOp
@@ -79,7 +80,7 @@ async def update_product_variant(
     ).first()
     raiseExceptions((productVariant, 404, "Product Variant not found"))
 
-    if isinstance(request.image, UploadFile):
+    if isinstance(request.image, FormUploadFile):
         await deleteMediaFiles(session, productVariant.image)
         request.image = await uploadSingleMedia(
             request.image, session, shop_id=shop_id

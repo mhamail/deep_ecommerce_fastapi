@@ -3,6 +3,7 @@ from sqlmodel import select
 
 from src.api.models.userModel import User
 from src.api.models.role_model.roleModel import Role
+from src.api.core.security import invalidate_user_session
 from src.api.core.operation import listRecords
 from src.api.core.response import api_response, raiseExceptions
 from src.api.core.dependencies import (
@@ -50,6 +51,7 @@ def create_role(
     session.add(user_role)
     session.commit()
     session.refresh(user_role)
+    invalidate_user_session(user_role.user_id)
     return api_response(
         201, "Role Created Successfully", UserRoleRead.model_validate(user_role)
     )
@@ -77,8 +79,10 @@ def delete_role(
     ).first()
     raiseExceptions((role, 404, "User Role not found"))
 
+    user_id = role.user_id
     session.delete(role)
     session.commit()
+    invalidate_user_session(user_id)
     return api_response(200, f"Role {role.id} deleted successfully")
 
 
