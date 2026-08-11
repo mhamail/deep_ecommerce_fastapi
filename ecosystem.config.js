@@ -8,7 +8,11 @@ module.exports = {
       name: "deep-ecom-backend",
       script: "./start.sh",
       interpreter: "bash",
-      cwd: "/home/ubuntu/projects/deep_ecom/backend",
+      // __dirname always resolves to wherever this file itself lives, so
+      // this stays correct whether it's your self-hosted runner's checkout
+      // path (which lives under actions-runner/_work/... and isn't fixed)
+      // or a manual clone anywhere else — no hardcoded path needed.
+      cwd: __dirname,
 
       // start.sh forks its own uvicorn worker processes — PM2 should run
       // exactly one instance of the supervisor script, not fork this itself.
