@@ -9,6 +9,13 @@ on:
 jobs:
   build-check:
     runs-on: ubuntu-latest
+    env:
+      # create_engine()/Alembic's Config both need a real, parseable URL just
+      # to construct the Engine/Config object — they don't connect at import
+      # time, but they do need a non-None, well-formed string. Add these as
+      # repo secrets: Settings → Secrets and variables → Actions.
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      SECRET_KEY: ${{ secrets.SECRET_KEY }}
     steps:
       - uses: actions/checkout@v4
 
