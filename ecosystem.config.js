@@ -24,7 +24,7 @@ module.exports = {
       max_memory_restart: "500M",
 
       env: {
-        PORT: "8000",
+        PORT: "8001",
         UVICORN_WORKERS: "4",
       },
 

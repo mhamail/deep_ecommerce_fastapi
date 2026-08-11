@@ -5,6 +5,6 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 WORKERS="${UVICORN_WORKERS:-4}"
-PORT="${PORT:-8000}"
+PORT="${PORT:-8001}"
 
 exec uv run -- uvicorn src.main:app --host 0.0.0.0 --port "$PORT" --workers "$WORKERS"
