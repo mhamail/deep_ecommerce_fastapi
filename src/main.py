@@ -15,6 +15,7 @@ from sqlmodel import SQLModel, create_engine
 
 from src.api.routers.product import productRoute, productVariantRoute
 from src.api.routers.order import OrderRoute, orderItemRoute
+from src.api.routers.dashboard import dashboardRoute
 
 from src.api.routers.category import categoryRoute
 from src.api.routers.auth.role_route import (
@@ -160,3 +161,4 @@ app.include_router(cartRoute.router)
 app.include_router(cartItemRoute.router)
 app.include_router(OrderRoute.router)
 app.include_router(orderItemRoute.router)
+app.include_router(dashboardRoute.router)

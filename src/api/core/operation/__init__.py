@@ -141,7 +141,6 @@ def listRecords(
     otherFilters=None,
     geo_filters: Optional[List[List[str]]] = None,
     Statement=None,
-    badStatusMsg: str = "No Result found",
 ):
     session = next(get_session())  # get actual Session object
     try:
@@ -184,9 +183,9 @@ def listRecords(
             sort=sort,
         )
 
-        if not result["data"]:
-            return api_response(400, badStatusMsg)
         # Convert each SQLModel Model instance into a ModelRead Pydantic model
+        # Zero matching rows is a valid result for a list endpoint, not an
+        # error — data: [] / total: 0 falls through the same success path.
         if not Schema:
             return result
 
