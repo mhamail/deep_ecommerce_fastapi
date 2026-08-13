@@ -1,5 +1,10 @@
+import asyncio
+import io
 import os
 import time
+from uuid import uuid4
+
+import httpx
 from src.api.core.response import api_response
 from PIL import Image, UnidentifiedImageError, ImageOps
 from starlette.datastructures import UploadFile
@@ -219,6 +224,58 @@ def delete_media_items(
         "deleted": deleted_files,
         "message": message,
     }
+
+
+class _DownloadedFile:
+    """Minimal UploadFile-like shim (filename + file-like buffer) so bytes
+    fetched from an external URL can go through the exact same
+    uploadImage()/entryMedia() pipeline as a real multipart upload — used
+    by download_and_save_image() below, e.g. for seeding demo data from an
+    external source."""
+
+    def __init__(self, filename: str, content: bytes):
+        self.filename = filename
+        self.file = io.BytesIO(content)
+
+    async def read(self) -> bytes:
+        return self.file.read()
+
+
+async def download_and_save_image(
+    url: str, session, shop_id: Optional[int] = None, retries: int = 3
+) -> Optional[dict]:
+    """Fetch an external image URL and store it as a real local Media
+    record, via the same resize/convert pipeline every other upload uses.
+    Returns None on any download/processing failure.
+
+    Retries on 429 with backoff — hosts like Imgur rate-limit anonymous
+    requests aggressively when downloading many images back-to-back (e.g.
+    seeding demo data)."""
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; DemoDataSeeder/1.0)"}
+    response = None
+    async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+        for attempt in range(retries):
+            try:
+                response = await client.get(url, headers=headers)
+                if response.status_code == 429:
+                    await asyncio.sleep(1.5 * (attempt + 1))
+                    continue
+                response.raise_for_status()
+                break
+            except httpx.HTTPError:
+                return None
+        else:
+            return None  # exhausted retries, still 429
+
+    ext = os.path.splitext(url.split("?")[0])[1] or ".jpg"
+    shim = _DownloadedFile(f"{uuid4().hex}{ext}", response.content)
+
+    saved_files = await uploadImage([shim], thumbnail=False)
+    if not isinstance(saved_files, list) or not saved_files:
+        return None
+
+    records = entryMedia(session, saved_files, shop_id=shop_id)
+    return records[0].model_dump(include={"id", "filename", "original", "media_type"})
 
 
 async def uploadSingleMedia(file, session, shop_id: Optional[int] = None):
