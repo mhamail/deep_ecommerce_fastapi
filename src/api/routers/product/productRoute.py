@@ -1,5 +1,7 @@
-from fastapi import APIRouter, Depends, Request
+from typing import Optional
+from fastapi import APIRouter, Depends, Query, Request
 from starlette.datastructures import UploadFile as FormUploadFile
+from sqlalchemy import and_, func
 from sqlalchemy.orm import joinedload, selectinload
 from sqlmodel import delete, exists, select
 from src.api.models.cart_model.cartItemModel import CartItem
@@ -323,36 +325,72 @@ PRODUCT_LIST_JOIN_OPTIONS = [
     selectinload(Product.variants),
 ]
 
+# Product-facing search fields — "sku" lives on ProductVariant, not Product,
+# so it must be searched via the dotted relation path (resolve_column joins
+# it automatically); a bare "sku" here raises AttributeError the moment
+# anyone actually searches.
+PRODUCT_SEARCH_FIELDS = ["name", "description", "slug", "variants.sku"]
+
+
+def apply_price_range_filter(statement, min_price: Optional[float], max_price: Optional[float]):
+    """min_price/max_price on Product are computed in Python from its
+    variants after fetch, not real columns, so the generic numberRange
+    filter can't reach them. Filter at the SQL level instead: does this
+    product have at least one variant whose effective price (discount price
+    if set, else price) falls in range."""
+    if min_price is None and max_price is None:
+        return statement
+
+    effective_price = func.coalesce(ProductVariant.discount_price, ProductVariant.price)
+    conditions = [ProductVariant.product_id == Product.id]
+    if min_price is not None:
+        conditions.append(effective_price >= min_price)
+    if max_price is not None:
+        conditions.append(effective_price <= max_price)
+
+    return statement.where(exists().where(and_(*conditions)))
+
 
 @router.get("/list", response_model=list[ProductRead])
 def list(
     query_params: ListQueryParams,
+    minPrice: Optional[float] = Query(None, description="Filters by variant price (discount price if set, else price)"),
+    maxPrice: Optional[float] = Query(None, description="Filters by variant price (discount price if set, else price)"),
 ):
     query_params = vars(query_params)
-    searchFields = ["name", "description", "slug", "sku"]
+
+    def otherFilters(statement, Model):
+        return apply_price_range_filter(statement, minPrice, maxPrice)
 
     return listRecords(
         query_params=query_params,
-        searchFields=searchFields,
+        searchFields=PRODUCT_SEARCH_FIELDS,
         Model=Product,
         Schema=ProductRead,
+        otherFilters=otherFilters,
         join_options=PRODUCT_LIST_JOIN_OPTIONS,
     )
 
 
 @router.get("/related-category/{category_id}")
-def list(query_params: ListQueryParams, category_id: int, session: GetSession):
+def list(
+    query_params: ListQueryParams,
+    category_id: int,
+    session: GetSession,
+    minPrice: Optional[float] = Query(None, description="Filters by variant price (discount price if set, else price)"),
+    maxPrice: Optional[float] = Query(None, description="Filters by variant price (discount price if set, else price)"),
+):
     query_params = vars(query_params)
-    searchFields = ["name", "description", "slug", "sku"]
 
     category_ids = get_category_subtree_ids(session, category_id)
 
     def otherFilters(statement, Model):
-        return statement.where(Model.category_id.in_(category_ids))
+        statement = statement.where(Model.category_id.in_(category_ids))
+        return apply_price_range_filter(statement, minPrice, maxPrice)
 
     return listRecords(
         query_params=query_params,
-        searchFields=searchFields,
+        searchFields=PRODUCT_SEARCH_FIELDS,
         Model=Product,
         Schema=ProductRead,
         otherFilters=otherFilters,
@@ -367,7 +405,7 @@ def list(
 ):
     shop_id = user.get("default_shop_id")
     query_params = vars(query_params)
-    searchFields = ["name", "description", "slug", "sku"]
+    searchFields = PRODUCT_SEARCH_FIELDS
 
     return listRecords(
         query_params=query_params,
