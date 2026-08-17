@@ -2,7 +2,8 @@ import ast
 from datetime import datetime, timezone
 import json
 from typing import List, Optional
-from sqlalchemy import Float, cast
+from sqlalchemy import Float, cast, select as sa_select
+from sqlalchemy.orm import aliased
 from sqlmodel import JSON, SQLModel, String, and_, asc, desc, func, or_
 from sqlmodel.sql.expression import Select, SelectOfScalar
 
@@ -12,10 +13,24 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import sqltypes as SATypes
 
 
+def _unwrap_type(col_type):
+    """SQLModel's default `str` fields use AutoString — a TypeDecorator
+    wrapping VARCHAR, not sqlalchemy.sql.sqltypes.String itself. Every
+    isinstance(col_type, SATypes.String) check below (and case-insensitive
+    matching that depends on it) silently fails for any plain `str` field —
+    i.e. almost every string column in this app — unless we unwrap down to
+    the real underlying type first."""
+    seen = set()
+    while hasattr(col_type, "impl") and id(col_type) not in seen:
+        seen.add(id(col_type))
+        col_type = col_type.impl
+    return col_type
+
+
 def _get_column_type(attr):
     # attr is InstrumentedAttribute of a column
     try:
-        return attr.property.columns[0].type
+        return _unwrap_type(attr.property.columns[0].type)
     except Exception:
         return None  # relationship or something unexpected
 
@@ -90,6 +105,7 @@ def resolve_column(Model, col: str, statement):  # nested object filter
     """
     parts = col.split(".")
     current_model = Model
+    seen_classes = {Model}  # tracks real (unaliased) mapper classes visited
     attr = None
 
     for i, part in enumerate(parts):  # enumerate = index + value in one go
@@ -98,8 +114,22 @@ def resolve_column(Model, col: str, statement):  # nested object filter
         if hasattr(mapper_attr, "property") and hasattr(mapper_attr.property, "mapper"):
             # It's a relationship -> join it
             related_model = mapper_attr.property.mapper.class_
-            statement = statement.join(mapper_attr, isouter=True)
-            current_model = related_model
+
+            if related_model in seen_classes:
+                # Self-referential (or repeated) relationship — e.g.
+                # Category.parent/.root pointing back at Category. Joining
+                # the same mapper twice without an alias raises "Can't
+                # construct a join ... they are the same entity".
+                aliased_model = aliased(related_model)
+                statement = statement.join(
+                    mapper_attr.of_type(aliased_model), isouter=True
+                )
+                current_model = aliased_model
+            else:
+                statement = statement.join(mapper_attr, isouter=True)
+                current_model = related_model
+
+            seen_classes.add(related_model)
         else:
             # It's a column
             attr = mapper_attr
@@ -284,6 +314,7 @@ def object_array_filter(statement: Select, Model, parsed_filters):
 def auto_resolve_path(Model, field_path: str, statement):
     parts = field_path.split(".")
     current_model = Model
+    seen_classes = {Model}  # tracks real (unaliased) mapper classes visited
     attr = None
 
     for part in parts:
@@ -296,8 +327,22 @@ def auto_resolve_path(Model, field_path: str, statement):
         # ✅ relationship
         elif part in mapper.relationships:
             rel = mapper.relationships[part]
-            statement = statement.join(getattr(current_model, part))
-            current_model = rel.mapper.class_
+            rel_attr = getattr(current_model, part)
+            target_cls = rel.mapper.class_
+
+            if target_cls in seen_classes:
+                # Self-referential (or repeated) relationship — e.g.
+                # Category.parent/.root pointing back at Category. Joining
+                # the same mapper twice without an alias raises "Can't
+                # construct a join ... they are the same entity".
+                aliased_cls = aliased(target_cls)
+                statement = statement.join(rel_attr.of_type(aliased_cls))
+                current_model = aliased_cls
+            else:
+                statement = statement.join(rel_attr)
+                current_model = target_cls
+
+            seen_classes.add(target_cls)
             attr = current_model
 
         else:
@@ -308,7 +353,7 @@ def auto_resolve_path(Model, field_path: str, statement):
 
 def is_json_field(attr):
     try:
-        col_type = attr.property.columns[0].type
+        col_type = _unwrap_type(attr.property.columns[0].type)
         return isinstance(col_type, (SATypes.JSON, JSONB))
     except Exception:
         return False
@@ -359,16 +404,31 @@ def deep_filter(statement, Model, parsed_filters):
 
             # ✅ JSON ARRAY FIELD (permissions list, items list, etc.)
             # val can be:
-            #   - a primitive  → checks if array contains that value  → [val]
-            #   - a dict       → checks if array contains an obj matching all keys → [val]
-            # Both use PostgreSQL @> operator via JSONB cast.
+            #   - a string     → case-insensitive match against any array
+            #                    element (jsonb_array_elements_text + ILIKE —
+            #                    the @> containment operator below is always
+            #                    exact-case, Postgres has no case-insensitive
+            #                    containment operator)
+            #   - other primitive / dict → checks if array contains that
+            #                    value/object → [val], via @> containment
             if is_json_field(attr):
-                # IMPORTANT: value must be wrapped in array
-                ors.append(cast(attr, JSONB).contains([val]))
-                continue  # 🚨 stop here (NO ilike!)
+                if isinstance(val, str):
+                    elem = func.jsonb_array_elements_text(
+                        cast(attr, JSONB)
+                    ).table_valued("value", name="elem")
+                    ors.append(
+                        sa_select(1)
+                        .select_from(elem)
+                        .where(elem.c.value.ilike(val))
+                        .exists()
+                    )
+                else:
+                    # IMPORTANT: value must be wrapped in array
+                    ors.append(cast(attr, JSONB).contains([val]))
+                continue  # 🚨 stop here (NO further branches for JSON fields)
 
             # ✅ STRING FIELD
-            col_type = attr.property.columns[0].type
+            col_type = _get_column_type(attr)
             if isinstance(col_type, SATypes.String):
                 ors.append(attr == val)
                 ors.append(attr.ilike(f"%{val}%"))

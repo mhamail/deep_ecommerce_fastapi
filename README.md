@@ -4,6 +4,30 @@
 
 ## An extremely fast Python package and project manager, written in Rust.
 
+## For Test Project - DEMO
+
+<!-- start -->
+
+`scripts/seed_demo_data.py` hardcodes `SHOP_ID = 1` and `CREATED_BY = 1` —
+it needs a real Shop and User with those ids to already exist, or every
+product insert fails on the shop_id/created_by foreign keys. On a fresh
+database that takes more than just "add admin user":
+
+1. `POST /init` — creates the first admin user (`is_root=True`).
+2. Creating a shop via `POST /shop/create` requires `verifiedUser`.
+3. Log in as that admin (`POST /login`), then `POST /shop/create` using
+   that access token — note the shop `id` returned.
+4. If the created user/shop ids aren't `1`, update `SHOP_ID`/`CREATED_BY`
+   at the top of `scripts/seed_demo_data.py` to match.
+5. Run `uv run python scripts/seed_demo_data.py --count 24`.
+
+Demo products are tagged `"demo"` in their `tags` field for easy bulk
+cleanup later — see the docstring at the top of that script.
+
+<!-- end -->
+
+## uv docs
+
 ```bash
 https://docs.astral.sh/uv/
 ```
