@@ -1,3 +1,4 @@
+import json
 from typing import Optional
 from fastapi import APIRouter, Depends, Query, Request
 from starlette.datastructures import UploadFile as FormUploadFile
@@ -319,6 +320,46 @@ def findOne(
     return api_response(200, "Product Found", data)
 
 
+def _extract_price_sort(query_params: dict):
+    """Product has no real 'price' column — it lives on ProductVariant, and
+    Product.min_price/max_price are Python-only @property values, not SQL
+    columns. `listRecords` reads `sort` out of query_params before
+    `otherFilters` ever runs, so the generic sort handler would already be
+    committed to `getattr(Product, "price")` (raising "Invalid sort
+    parameter: price") by the time otherFilters could react. So: pull a
+    price-family sort out of query_params here (route level, before
+    listRecords sees it) and return enough info to build the correct
+    correlated-subquery ordering via otherFilters instead."""
+    sort_raw = query_params.get("sort")
+    if not sort_raw:
+        return None
+
+    try:
+        column_name, direction = json.loads(sort_raw)
+    except Exception:
+        return None
+
+    if column_name not in ("price", "min_price", "max_price"):
+        return None
+
+    query_params["sort"] = None  # stop the generic sort handler from also trying
+    return column_name, (direction or "asc").lower()
+
+
+def _price_order_by(column_name: str, direction: str):
+    # Effective price per variant = discount_price if set, else price —
+    # same semantics as Product.min_price/max_price.
+    effective_price = func.coalesce(ProductVariant.discount_price, ProductVariant.price)
+    agg_fn = func.max if column_name == "max_price" else func.min
+    price_subq = (
+        select(agg_fn(effective_price))
+        .where(ProductVariant.product_id == Product.id)
+        .correlate(Product)
+        .scalar_subquery()
+    )
+    return price_subq.desc() if direction == "desc" else price_subq.asc()
+
+
 PRODUCT_LIST_JOIN_OPTIONS = [
     selectinload(Product.shop),
     selectinload(Product.category),
@@ -332,35 +373,17 @@ PRODUCT_LIST_JOIN_OPTIONS = [
 PRODUCT_SEARCH_FIELDS = ["name", "description", "slug", "variants.sku"]
 
 
-def apply_price_range_filter(statement, min_price: Optional[float], max_price: Optional[float]):
-    """min_price/max_price on Product are computed in Python from its
-    variants after fetch, not real columns, so the generic numberRange
-    filter can't reach them. Filter at the SQL level instead: does this
-    product have at least one variant whose effective price (discount price
-    if set, else price) falls in range."""
-    if min_price is None and max_price is None:
-        return statement
-
-    effective_price = func.coalesce(ProductVariant.discount_price, ProductVariant.price)
-    conditions = [ProductVariant.product_id == Product.id]
-    if min_price is not None:
-        conditions.append(effective_price >= min_price)
-    if max_price is not None:
-        conditions.append(effective_price <= max_price)
-
-    return statement.where(exists().where(and_(*conditions)))
-
-
 @router.get("/list", response_model=list[ProductRead])
 def list(
     query_params: ListQueryParams,
-    minPrice: Optional[float] = Query(None, description="Filters by variant price (discount price if set, else price)"),
-    maxPrice: Optional[float] = Query(None, description="Filters by variant price (discount price if set, else price)"),
 ):
     query_params = vars(query_params)
+    price_sort = _extract_price_sort(query_params)
 
     def otherFilters(statement, Model):
-        return apply_price_range_filter(statement, minPrice, maxPrice)
+        if price_sort:
+            statement = statement.order_by(_price_order_by(*price_sort))
+        return statement
 
     return listRecords(
         query_params=query_params,
@@ -377,16 +400,17 @@ def list(
     query_params: ListQueryParams,
     category_id: int,
     session: GetSession,
-    minPrice: Optional[float] = Query(None, description="Filters by variant price (discount price if set, else price)"),
-    maxPrice: Optional[float] = Query(None, description="Filters by variant price (discount price if set, else price)"),
 ):
     query_params = vars(query_params)
+    price_sort = _extract_price_sort(query_params)
 
     category_ids = get_category_subtree_ids(session, category_id)
 
     def otherFilters(statement, Model):
         statement = statement.where(Model.category_id.in_(category_ids))
-        return apply_price_range_filter(statement, minPrice, maxPrice)
+        if price_sort:
+            statement = statement.order_by(_price_order_by(*price_sort))
+        return statement
 
     return listRecords(
         query_params=query_params,
@@ -405,7 +429,13 @@ def list(
 ):
     shop_id = user.get("default_shop_id")
     query_params = vars(query_params)
+    price_sort = _extract_price_sort(query_params)
     searchFields = PRODUCT_SEARCH_FIELDS
+
+    def otherFilters(statement, Model):
+        if price_sort:
+            statement = statement.order_by(_price_order_by(*price_sort))
+        return statement
 
     return listRecords(
         query_params=query_params,
@@ -413,5 +443,6 @@ def list(
         Model=Product,
         Schema=ProductRead,
         customFilters=[["shop_id", shop_id]],
+        otherFilters=otherFilters,
         join_options=PRODUCT_LIST_JOIN_OPTIONS,
     )
