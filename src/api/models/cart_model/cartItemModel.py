@@ -59,7 +59,13 @@ class CartItem(TimeStampedModel, table=True):
         if not self.variant:
             return None
 
-        return self.variant.image
+        # Most variants never get their own per-variant image (that's only
+        # set when a client explicitly uploads one) — fall back to the
+        # product's thumbnail, which is the one image every product has.
+        if self.variant.image:
+            return self.variant.image
+
+        return self.variant.product.thumbnail if self.variant.product else None
 
     @property
     def product_name(self) -> Optional[str]:

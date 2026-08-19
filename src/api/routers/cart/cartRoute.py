@@ -93,7 +93,6 @@ async def create_cart(
                         quantity=qty,
                         product_id=variant.product_id,
                         variant_attributes=variant.attributes,
-                        image=variant.image,
                     )
                 )
 
@@ -149,7 +148,9 @@ def read(
     query = session.exec(
         select(Cart)
         .options(
-            selectinload(Cart.items).selectinload(CartItem.variant),
+            selectinload(Cart.items)
+            .selectinload(CartItem.variant)
+            .selectinload(ProductVariant.product),
         )
         .where(Cart.user_id == user["id"], Cart.id == id)
     ).first()
