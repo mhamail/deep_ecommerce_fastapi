@@ -43,21 +43,28 @@ class User(
 
     email_verified: bool = Field(default=False, description="Email verification status")
 
-    full_name: str = Field(index=True, description="Full name of the user")
+    # Nullable — OTP registration only collects an email up front; name,
+    # password, country/currency etc. get filled in later (e.g. at checkout,
+    # via /user/update) rather than being required at signup.
+    full_name: Optional[str] = Field(
+        default=None, index=True, description="Full name of the user"
+    )
     contactinfo: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON))
     image: Optional[Dict[str, Any]] = Field(
         default=None, sa_column=Column(JSON), description="Image of the user"
     )
     is_root: bool = Field(default=False)
     is_active: bool = Field(default=True)
-    password: str = Field(nullable=False, description="Hashed password")
+    password: Optional[str] = Field(default=None, description="Hashed password")
 
     use_token: Optional[str] = Field(default=None)
 
-    country: str = Field(description="Country name (e.g., Pakistan)")
-    country_code: str = Field(description="Country code (e.g., PK)")
-    currency_code: str = Field(description="Currency code (e.g., PKR)")
-    currency_symbol: str = Field(description="Currency symbol (e.g., ₨)")
+    country: Optional[str] = Field(default=None, description="Country name (e.g., Pakistan)")
+    country_code: Optional[str] = Field(default=None, description="Country code (e.g., PK)")
+    currency_code: Optional[str] = Field(default=None, description="Currency code (e.g., PKR)")
+    currency_symbol: Optional[str] = Field(
+        default=None, description="Currency symbol (e.g., ₨)"
+    )
     default_shop_id: Optional[int] = Field(
         default=None, foreign_key="shops.id", index=True
     )
@@ -231,19 +238,19 @@ class UserShopRead(SQLModel):
 
 class UserReadBase(TimeStampReadModel):
     id: int
-    full_name: str
-    phone: str
+    full_name: Optional[str] = None
+    phone: Optional[str] = None
     email: EmailStr
     email_verified: bool
     # is_active: bool
     is_root: bool
     image: Optional[Dict[str, Any]] = None
     contactinfo: Optional[Dict[str, Any]] = None
-    country: str
-    country_code: str
+    country: Optional[str] = None
+    country_code: Optional[str] = None
     verified: bool
-    currency_code: str
-    currency_symbol: str
+    currency_code: Optional[str] = None
+    currency_symbol: Optional[str] = None
     default_shop_id: Optional[int] = None
 
 
@@ -258,6 +265,15 @@ class UserRead(SQLModel, UserReadBase):
 class LoginRequest(BaseModel):
     identifier: str  # phone OR email
     password: str
+
+
+class EmailOtpRequest(BaseModel):
+    email: EmailStr
+
+
+class EmailOtpVerifyRequest(BaseModel):
+    email: EmailStr
+    otp: str
 
 
 class ResetPasswordWithOTPRequest(BaseModel):

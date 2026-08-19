@@ -2,14 +2,20 @@ from datetime import datetime, timedelta, timezone
 from random import randint
 
 from fastapi import APIRouter, Body, Depends, Response
-from jose import jwt
+
 from pydantic import EmailStr
 from sqlmodel import or_, select
 
 from sqlalchemy.orm import selectinload
 
+from src.api.routers.auth.function import (
+    generate_and_send_otp,
+    issue_login_tokens,
+    send_verification_email,
+    verify_otp,
+)
 from src.api.core.smtp import send_email
-from src.config import ACCESS_TOKEN_EXPIRE_MINUTES, DOMAIN, SECRET_KEY
+
 from src.api.models.role_model.userRoleModel import UserRole
 from src.api.core.response import api_response
 from src.api.models.role_model.roleModel import Role
@@ -31,6 +37,8 @@ from src.api.core.dependencies import (
     requireShopAdmin,
 )
 from src.api.models.userModel import (
+    EmailOtpRequest,
+    EmailOtpVerifyRequest,
     LoginRequest,
     ResetPasswordWithOTPRequest,
     User,
@@ -38,22 +46,7 @@ from src.api.models.userModel import (
     UserRead,
 )
 
-
 router = APIRouter(tags=["Auth"])
-
-
-def send_verification_email(user: User) -> None:
-    token = create_access_token({"id": user.id, "email": user.email})
-    verify_url = f"{DOMAIN}/verify/verify-email?token={token}"
-
-    with open("src/templates/email_verification.html") as f:
-        html_template = f.read().replace("{{VERIFY_URL}}", verify_url)
-
-    send_email(
-        to_email=user.email,
-        subject="Verify Your Email Address",
-        body=html_template,
-    )
 
 
 @router.post("/init", response_model=UserRead)
@@ -168,47 +161,128 @@ def login_user(
     if "@" in identifier and not user.email_verified:
         return api_response(401, "Please verify your email before logging in")
 
-    user_read = UserRead.model_validate(user)
-
+    # OTP-only accounts (registered via /register-otp) have no password set
+    if not user.password:
+        return api_response(
+            400, "This account has no password set. Please login via OTP instead."
+        )
     if not verify_password(request.password, user.password):
         return api_response(401, "Incorrect password")
     if not user.is_active:
         return api_response(403, "User account is disabled")
 
-    # JWT payload stays minimal (just the id) — require_signin_user fetches
-    # the full profile (roles, shop, permissions) fresh from the DB on every
-    # request, so it can't go stale between login and token expiry.
-    user_data = {"id": user.id}
+    content = issue_login_tokens(user, response)
+    return api_response(200, "Login successful", content)
 
-    access_token = create_access_token(
-        user_data=user_data, token_version=user.token_version
-    )
-    refresh_token = create_access_token(
-        user_data=user_data,
-        token_version=user.token_version,
-        refresh=True,
+
+# =====================================================================
+# Passwordless auth — email + OTP only. No name/phone/country/etc required
+# up front; those get collected later (e.g. at checkout via /user/update).
+# =====================================================================
+
+
+@router.post("/register-otp/send")
+def register_otp_send(
+    request: EmailOtpRequest,
+    session: GetSession,
+):
+    email = request.email.strip().lower()
+    user = session.exec(select(User).where(User.email == email)).first()
+
+    if user and user.email_verified:
+        return api_response(400, "This email is already registered. Please login.")
+
+    if not user:
+        # Minimal record — everything else (name, password, country, etc.)
+        # is optional and gets filled in later.
+        user = User(email=email)
+        session.add(user)
+        session.flush()
+
+    generate_and_send_otp(
+        session,
+        user,
+        purpose="register",
+        subject="Your Registration Code",
+        message="Your registration code is:",
     )
 
-    exp_time = datetime.now(timezone.utc) + timedelta(
-        minutes=ACCESS_TOKEN_EXPIRE_MINUTES
-    )
-    # cookie will test in postman and frontend only with tag credential:true
-    response.set_cookie(
-        key="refresh_token",
-        value=refresh_token,
-        httponly=True,
-        samesite="strict",
-        max_age=30 * 24 * 60 * 60,  # 30 days
-    )
-    content = {
-        "message": "Login successful",
-        "token_type": "bearer",
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "user": user_read,
-        "exp": exp_time.isoformat(),
-    }
+    return api_response(200, "Verification code sent. Please check your email.")
 
+
+@router.post("/register-otp/verify", response_model=dict)
+def register_otp_verify(
+    request: EmailOtpVerifyRequest,
+    response: Response,
+    session: GetSession,
+):
+    email = request.email.strip().lower()
+    user = session.exec(select(User).where(User.email == email)).first()
+    if not user:
+        return api_response(400, "Invalid email or code")
+
+    if not verify_otp(user, request.otp.strip(), purpose="register"):
+        return api_response(400, "Invalid or expired code")
+
+    # OTP registration IS the verification step — no separate email-link
+    # step, and no phone required to be considered a fully verified account.
+    user.email_verified = True
+    user.verified = True
+    user.use_token = None
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+
+    content = issue_login_tokens(user, response)
+    return api_response(201, "Registration complete", content)
+
+
+@router.post("/login-otp/send")
+def login_otp_send(
+    request: EmailOtpRequest,
+    session: GetSession,
+):
+    email = request.email.strip().lower()
+    user = session.exec(select(User).where(User.email == email)).first()
+
+    if not user or not user.email_verified:
+        return api_response(400, "No account found for this email. Please register.")
+    if not user.is_active:
+        return api_response(403, "User account is disabled")
+
+    generate_and_send_otp(
+        session,
+        user,
+        purpose="login",
+        subject="Your Login Code",
+        message="Your login code is:",
+    )
+
+    return api_response(200, "Verification code sent. Please check your email.")
+
+
+@router.post("/login-otp/verify", response_model=dict)
+def login_otp_verify(
+    request: EmailOtpVerifyRequest,
+    response: Response,
+    session: GetSession,
+):
+    email = request.email.strip().lower()
+    user = session.exec(select(User).where(User.email == email)).first()
+    if not user:
+        return api_response(400, "Invalid email or code")
+
+    if not verify_otp(user, request.otp.strip(), purpose="login"):
+        return api_response(400, "Invalid or expired code")
+
+    if not user.is_active:
+        return api_response(403, "User account is disabled")
+
+    user.use_token = None
+    session.add(user)
+    session.commit()
+
+    content = issue_login_tokens(user, response)
     return api_response(200, "Login successful", content)
 
 
@@ -228,17 +302,6 @@ def resend_verification_email(
     send_verification_email(user)
 
     return api_response(200, "Verification email sent. Please check your inbox.")
-
-
-def exist_verified_email(session, email: str) -> bool:
-
-    user = session.exec(
-        select(User.id).where(
-            User.email == email,
-            User.email_verified == True,
-        )
-    ).first()
-    return True if user else False
 
 
 @router.post(

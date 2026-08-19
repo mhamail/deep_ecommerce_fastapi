@@ -13,7 +13,7 @@ from src.api.core.security import (
     invalidate_user_session,
     require_signin_user,
 )
-from src.api.routers.auth.authRoute import exist_verified_email, send_verification_email
+from src.api.routers.auth.function import exist_verified_email, send_verification_email
 from src.api.core import updateOp, requireSignin
 from src.api.core.dependencies import GetSession, requireAdmin
 from src.api.core.response import api_response, raiseExceptions

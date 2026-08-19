@@ -24,7 +24,6 @@ from src.api.models.role_model.roleModel import Role
 from src.api.models.shop_model.ShopChildModel import ShopUser
 from src.api.core.utility import Print
 from src.api.models.role_model.userRoleModel import UserRole
-from src.api.routers.auth.function import validate_default_shop
 from src.lib.db_con import get_session
 from src.lib.redis_con import cache_get, cache_set, clear_hash
 from src.api.models.userModel import User, UserRead
