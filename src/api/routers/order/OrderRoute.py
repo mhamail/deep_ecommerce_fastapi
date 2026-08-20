@@ -92,22 +92,6 @@ def get_default_shipping_address(session: GetSession, user_id: int) -> Optional[
     return addr.address
 
 
-def require_manual_shipping_address(data: dict):
-    shipping_address = data.get("shipping_address") or {}
-
-    data["shipping_address"] = {
-        **shipping_address,
-    }
-
-    raiseExceptions(
-        (
-            data["shipping_address"].get("details"),
-            400,
-            "Shipping details are required for manual orders",
-        )
-    )
-
-
 def insertOrderItems(session, items_data, order):
     order_items = [
         OrderItem(
@@ -150,12 +134,12 @@ def destock_product_variants(session, items_data):
 
 
 @router.post("/create", response_model=OrderRead)
-async def create_order(session: GetSession, request: OrderCreate):
+async def create_order(session: GetSession, request: OrderCreate, user: requireSignin):
     data = request.model_dump()
 
     # Strip fields that are not Order table columns
     cart_item_ids = data.pop("cart_item_ids", None) or []
-    user_id = request.user_id or None
+    user_id = user["id"]
     # manuals
     manual_items_data = data.pop("items", []) or []
 
@@ -166,15 +150,12 @@ async def create_order(session: GetSession, request: OrderCreate):
     # ─────────────────────────────────────────────
     items_data = []
 
+    raiseExceptions((user_id, 400, "user_id is required"))
+    data["shipping_address"] = get_default_shipping_address(session, user_id)
     if cart_item_ids:
-        raiseExceptions((user_id, 400, "user_id is required for cart order"))
 
         cart_items = get_cart_items_by_ids(session, cart_item_ids, user_id)
         raiseExceptions((cart_items, 404, "No valid cart items found for this user"))
-
-        # Auto-populate shipping from user's default address (skip if already provided)
-
-        data["shipping_address"] = get_default_shipping_address(session, user_id)
 
         items_data = [
             {
@@ -198,7 +179,6 @@ async def create_order(session: GetSession, request: OrderCreate):
     # ─────────────────────────────────────────────
     else:
         raiseExceptions((manual_items_data, 400, "items are required for manual order"))
-        require_manual_shipping_address(data)
 
         for item in manual_items_data:
             variant = None
@@ -319,14 +299,20 @@ def delete_order(id: int, session: GetSession, user: requireDefaultShop):
     # the order belongs to the caller's shop.
     shop_id = user.get("default_shop_id")
     order = session.exec(
-        select(Order).join(OrderItem).where(Order.id == id, OrderItem.shop_id == shop_id)
+        select(Order)
+        .join(OrderItem)
+        .where(Order.id == id, OrderItem.shop_id == shop_id)
     ).first()
     raiseExceptions((order, 404, "Order not found"))
     other_shop_item = session.exec(
         select(OrderItem).where(OrderItem.order_id == id, OrderItem.shop_id != shop_id)
     ).first()
     raiseExceptions(
-        (not other_shop_item, 403, "Order has items from other shops and can't be deleted here")
+        (
+            not other_shop_item,
+            403,
+            "Order has items from other shops and can't be deleted here",
+        )
     )
     session.delete(order)
     session.commit()
