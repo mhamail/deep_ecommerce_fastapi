@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Optional
 from sqlalchemy import Column, JSON
 from sqlmodel import Field, Relationship, SQLModel
 
+from src.api.models.mediaModel import MediaRead
 from src.api.models.baseModel import TimeStampedModel
 
 if TYPE_CHECKING:
@@ -77,7 +78,7 @@ class OrderItemsRead(SQLModel):
     price: float
     actual_price: Optional[float] = None
     quantity: int
-    image: Optional[dict] = None
+    image: Optional[MediaRead] = None
 
     class Config:
         from_attributes = True
