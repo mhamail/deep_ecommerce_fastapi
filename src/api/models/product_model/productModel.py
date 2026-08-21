@@ -105,6 +105,12 @@ class Product(TimeStampedModel, table=True):
         ]
         return max(prices) if prices else None
 
+    @property
+    def is_sale(self) -> bool:
+        if self.min_price is None or self.max_price is None:
+            return False
+        return self.min_price < self.max_price
+
 
 class ShopRead(SQLModel):
     id: int
@@ -144,6 +150,7 @@ class ProductBase(SQLModel):
     min_price: Optional[float] = 0
     max_price: Optional[float] = 0
     total_stock: int = 0
+    is_sale: bool = False
 
     # Relations
     shop: ShopRead

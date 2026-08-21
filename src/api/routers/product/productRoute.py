@@ -1,8 +1,9 @@
+import builtins
 import json
 from typing import Optional
 from fastapi import APIRouter, Depends, Query, Request
 from starlette.datastructures import UploadFile as FormUploadFile
-from sqlalchemy import and_, func
+from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import joinedload, selectinload
 from sqlmodel import delete, exists, select
 from src.api.models.cart_model.cartItemModel import CartItem
@@ -82,10 +83,36 @@ def _extract_variant_images(form_data) -> dict:
     return images
 
 
+def _reset_fields_not_actually_sent(request, form_data, field_names):
+    """FastAPI substitutes a param's own Python-level default (e.g.
+    Form(True), or `clean_json(x) or []`) whenever the client omits that
+    field from the multipart body — for booleans and JSON-with-empty-
+    fallback fields, that default is a real, non-None value (True/False/[])
+    indistinguishable from "the client explicitly set this". updateOp's
+    partial-update logic only skips None values, so without this, these
+    fields get silently overwritten back to their default on every update
+    call that doesn't re-send them. Reset (not delete — some fields are
+    still read directly later in the route) any of `field_names` the
+    client didn't actually submit back to None so updateOp leaves them
+    alone."""
+    sent_keys = {key for key, _ in form_data.multi_items()}
+    for field in field_names:
+        if field not in sent_keys:
+            setattr(request, field, None)
+
+
 async def upsert_product_variants(
     session, product: Product, request: ProductForm, variant_images: dict
 ):
-    variant_data = request.variant_data or []
+    if request.variant_data is None:
+        # Client didn't send variant_data at all this call (e.g. a simple
+        # is_featured-only edit) — `None` means "didn't touch variants",
+        # NOT "remove all variants". Collapsing it to [] here used to make
+        # every existing variant look "dropped" below and get deleted.
+        # Only an explicitly-sent [] should mean "remove all variants".
+        return
+
+    variant_data = request.variant_data
     # Snapshot BEFORE creating/updating anything this call — newly created
     # variants never carry a client-supplied id, so diffing against
     # `product.variants` read *after* the loop below would wrongly treat
@@ -196,7 +223,6 @@ async def create_product(
     session.flush()
 
     variant_images = _extract_variant_images(await http_request.form())
-    print(variant_images)
     await upsert_product_variants(session, product, request, variant_images)
 
     session.commit()
@@ -221,6 +247,14 @@ async def update_product(
         select(Product).where(Product.id == id, Product.shop_id == shop_id)
     ).first()
     raiseExceptions((product, 404, "Product not found"))
+    print("....................................................")
+    print(vars(request))
+
+    form_data = await http_request.form()
+    _reset_fields_not_actually_sent(
+        request, form_data, ["is_active", "is_featured", "attributes", "tags"]
+    )
+
     if request.name:
         request.slug = uniqueSlugify(session, Product, request.name)
 
@@ -250,10 +284,16 @@ async def update_product(
     # ==========================
     # UPDATE
     # ==========================
-
     updated_product = updateOp(product, request, session)
 
-    variant_images = _extract_variant_images(await http_request.form())
+    import json
+
+    print(
+        "....................................................",
+        json.dumps(vars(request), indent=2, default=str),
+    )
+
+    variant_images = _extract_variant_images(form_data)
     await upsert_product_variants(session, updated_product, request, variant_images)
 
     session.commit()
@@ -360,6 +400,81 @@ def _price_order_by(column_name: str, direction: str):
     return price_subq.desc() if direction == "desc" else price_subq.asc()
 
 
+def _extract_is_sale_filter(query_params: dict):
+    """is_sale is a Python-only @property on Product (min_price < max_price
+    across its variants) — not a real column, so the generic deepFilter
+    engine can't resolve it via getattr (raises "Invalid field: is_sale").
+    `listRecords` reads deepFilters out of query_params before otherFilters
+    ever runs (same situation as sort), so: pull an ["is_sale", bool] entry
+    out of deepFilters here, before listRecords sees it, and build the
+    correct correlated-subquery condition ourselves instead — this keeps
+    the check fully DB-side (no fetching rows into Python to filter)."""
+    raw = query_params.get("deepFilters")
+    if not raw:
+        return None
+
+    try:
+        parsed = json.loads(raw) if isinstance(raw, str) else raw
+    except Exception:
+        return None
+
+    # NOTE: this module defines three route handlers all named `def list`,
+    # which shadows the builtin `list` type at module scope — must reference
+    # it via `builtins.list` here, not the bare name.
+    if (
+        isinstance(parsed, builtins.list)
+        and len(parsed) == 2
+        and isinstance(parsed[0], str)
+    ):
+        parsed = [parsed]
+    if not isinstance(parsed, builtins.list):
+        return None
+
+    remaining = []
+    want_sale = None
+    for entry in parsed:
+        if (
+            isinstance(entry, (builtins.list, tuple))
+            and len(entry) >= 2
+            and entry[0] == "is_sale"
+        ):
+            val = entry[1]
+            want_sale = bool(val[0] if isinstance(val, builtins.list) else val)
+        else:
+            remaining.append(entry)
+
+    if want_sale is None:
+        return None
+
+    # leave any other deepFilters intact so they still combine normally
+    query_params["deepFilters"] = json.dumps(remaining) if remaining else None
+    return want_sale
+
+
+def _is_sale_condition(want_sale: bool):
+    # Same semantics as Product.is_sale: effective price per variant is
+    # discount_price if set, else price; on sale means the cheapest
+    # effective price is strictly below the priciest one.
+    effective_price = func.coalesce(ProductVariant.discount_price, ProductVariant.price)
+    min_subq = (
+        select(func.min(effective_price))
+        .where(ProductVariant.product_id == Product.id)
+        .correlate(Product)
+        .scalar_subquery()
+    )
+    max_subq = (
+        select(func.max(effective_price))
+        .where(ProductVariant.product_id == Product.id)
+        .correlate(Product)
+        .scalar_subquery()
+    )
+    if want_sale:
+        return and_(min_subq.isnot(None), max_subq.isnot(None), min_subq < max_subq)
+    # "not on sale" also covers no-price/no-variant products, matching the
+    # property's `return False` when either side is None
+    return or_(min_subq.is_(None), max_subq.is_(None), min_subq >= max_subq)
+
+
 PRODUCT_LIST_JOIN_OPTIONS = [
     selectinload(Product.shop),
     selectinload(Product.category),
@@ -379,10 +494,13 @@ def list(
 ):
     query_params = vars(query_params)
     price_sort = _extract_price_sort(query_params)
+    is_sale = _extract_is_sale_filter(query_params)
 
     def otherFilters(statement, Model):
         if price_sort:
             statement = statement.order_by(_price_order_by(*price_sort))
+        if is_sale is not None:
+            statement = statement.where(_is_sale_condition(is_sale))
         return statement
 
     return listRecords(
@@ -403,6 +521,7 @@ def list(
 ):
     query_params = vars(query_params)
     price_sort = _extract_price_sort(query_params)
+    is_sale = _extract_is_sale_filter(query_params)
 
     category_ids = get_category_subtree_ids(session, category_id)
 
@@ -410,6 +529,8 @@ def list(
         statement = statement.where(Model.category_id.in_(category_ids))
         if price_sort:
             statement = statement.order_by(_price_order_by(*price_sort))
+        if is_sale is not None:
+            statement = statement.where(_is_sale_condition(is_sale))
         return statement
 
     return listRecords(
@@ -430,11 +551,14 @@ def list(
     shop_id = user.get("default_shop_id")
     query_params = vars(query_params)
     price_sort = _extract_price_sort(query_params)
+    is_sale = _extract_is_sale_filter(query_params)
     searchFields = PRODUCT_SEARCH_FIELDS
 
     def otherFilters(statement, Model):
         if price_sort:
             statement = statement.order_by(_price_order_by(*price_sort))
+        if is_sale is not None:
+            statement = statement.where(_is_sale_condition(is_sale))
         return statement
 
     return listRecords(
