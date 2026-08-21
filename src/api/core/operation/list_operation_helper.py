@@ -13,6 +13,22 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import sqltypes as SATypes
 
 
+def _parse_filter_param(raw):
+    """All the *Filters query params below are JSON-shaped values coming
+    from a frontend (true/false/null, double-quoted strings) — but were
+    parsed with ast.literal_eval, which understands PYTHON literal syntax
+    (True/False/None) and raises on lowercase JSON booleans/null with
+    "malformed node or string". Try real JSON first; fall back to Python
+    literal syntax so any caller already sending single-quoted / Python-
+    style values (True/False/None) keeps working too."""
+    if not isinstance(raw, str):
+        return raw
+    try:
+        return json.loads(raw)
+    except Exception:
+        return ast.literal_eval(raw)
+
+
 def _unwrap_type(col_type):
     """SQLModel's default `str` fields use AutoString — a TypeDecorator
     wrapping VARCHAR, not sqlalchemy.sql.sqltypes.String itself. Every
@@ -479,7 +495,7 @@ def applyFilters(
     # Column-specific search
     if columnFilters:
         try:
-            parsed_terms = ast.literal_eval(columnFilters)
+            parsed_terms = _parse_filter_param(columnFilters)
             columnFilters = [tuple(sublist) for sublist in parsed_terms]
 
             # Group filters by column name
@@ -593,11 +609,7 @@ def applyFilters(
         string_array_raw = stringArrayFilters
         if string_array_raw:
             try:
-                parsed = (
-                    ast.literal_eval(string_array_raw)
-                    if isinstance(string_array_raw, str)
-                    else string_array_raw
-                )
+                parsed = _parse_filter_param(string_array_raw)
                 statement = string_array_filter(statement, Model, parsed)
             except Exception as e:
                 return api_response(400, f"stringArrayFilter parse error: {e}")
@@ -606,11 +618,7 @@ def applyFilters(
 
         if object_array_raw:
             try:
-                parsed = (
-                    ast.literal_eval(object_array_raw)
-                    if isinstance(object_array_raw, str)
-                    else object_array_raw
-                )
+                parsed = _parse_filter_param(object_array_raw)
                 statement = object_array_filter(statement, Model, parsed)
             except Exception as e:
                 return api_response(400, f"objectArrayFilter parse error: {e}")
@@ -621,11 +629,7 @@ def applyFilters(
 
     if geoFilters:
         try:
-            parsed_terms = (
-                ast.literal_eval(geoFilters)
-                if isinstance(geoFilters, str)
-                else geoFilters
-            )
+            parsed_terms = _parse_filter_param(geoFilters)
 
             geo_dict = dict(parsed_terms)
 
@@ -671,11 +675,7 @@ def applyFilters(
 
     if deepFilters:
         try:
-            parsed = (
-                ast.literal_eval(deepFilters)
-                if isinstance(deepFilters, str)
-                else deepFilters
-            )
+            parsed = _parse_filter_param(deepFilters)
 
             # ✅ normalize single filter → list of filters
             if (
