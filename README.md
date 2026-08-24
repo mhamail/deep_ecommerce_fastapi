@@ -117,11 +117,25 @@ alembic stamp <revision_id> # force DB revision
 
 ```bash
 #📌 Is it even running?
+sudo apt install redis-server redis-tools
+redis-server --version
+
+
 sudo systemctl status redis
 redis-cli ping                    # should reply: PONG
 
 #📌 Connect interactively
 redis-cli
+
+sudo systemctl enable redis-server
+
+sudo systemctl is-enabled redis-server # enabled
+
+sudo grep -E '^(bind|protected-mode|port|requirepass|maxmemory|maxmemory-policy|appendonly|save)' /etc/redis/redis.conf
+sudo ss -lntp | grep 6379
+redis-cli INFO server | grep -E 'redis_version|tcp_port'
+ssh -L 6379:127.0.0.1:6379 ubuntu@YOUR_SERVER_IP
+redis-cli -h 127.0.0.1 -p 6379 ping
 
 #📌 Inspect this app's cache (user sessions are stored as a hash, see src/lib/redis_con.py)
 redis-cli KEYS "user_session:*"   # list matching keys (KEYS blocks on huge datasets — use SCAN in prod)

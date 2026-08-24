@@ -66,7 +66,11 @@ app.add_middleware(
         "http://localhost:3002",
         "http://localhost:3003",
     ],
-    allow_origin_regex=r"^https?://([a-zA-Z0-9-]+\.)*buyagain\.pk$",
+    # (:\d+)? — an optional trailing port, so a subdomain accessed with a
+    # non-default port (e.g. test.buyagain.pk:3000 for local dev via
+    # /etc/hosts) still matches; without it the Origin header's port made
+    # this regex reject an otherwise-correct buyagain.pk subdomain.
+    allow_origin_regex=r"^https?://([a-zA-Z0-9-]+\.)*buyagain\.pk(:\d+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
