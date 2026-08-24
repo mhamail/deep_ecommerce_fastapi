@@ -59,7 +59,14 @@ jobs:
     steps:
       # The runner checks out the latest main into its own workspace
       # automatically — no manual git pull/cd to a separate path needed.
+      #
+      # clean: false is required here — actions/checkout defaults to
+      # `git clean -ffdx` before checking out, which wipes every untracked
+      # AND gitignored file, including .env (and logs/, .venv/ if not
+      # already present). That's what was deleting .env on every deploy.
       - uses: actions/checkout@v4
+        with:
+          clean: false
 
       - name: Install dependencies
         run: uv sync
