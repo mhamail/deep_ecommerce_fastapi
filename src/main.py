@@ -54,7 +54,10 @@ app = FastAPI(
     root_path="/api",
     docs_url=None,
 )
-# Allow all origins
+# Local dev origins (exact match) + buyagain.pk and any of its subdomains
+# (allow_origins only matches exact strings — wildcard subdomains need
+# allow_origin_regex instead; CORSMiddleware allows a request if it matches
+# either list).
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -62,7 +65,8 @@ app.add_middleware(
         "http://localhost:3001",
         "http://localhost:3002",
         "http://localhost:3003",
-    ],  # or "*"
+    ],
+    allow_origin_regex=r"^https?://([a-zA-Z0-9-]+\.)*buyagain\.pk$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

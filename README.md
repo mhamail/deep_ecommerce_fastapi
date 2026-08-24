@@ -113,6 +113,31 @@ alembic stamp head # mark DB as up-to-date
 alembic stamp <revision_id> # force DB revision
 ```
 
+# Redis
+
+```bash
+#📌 Is it even running?
+sudo systemctl status redis
+redis-cli ping                    # should reply: PONG
+
+#📌 Connect interactively
+redis-cli
+
+#📌 Inspect this app's cache (user sessions are stored as a hash, see src/lib/redis_con.py)
+redis-cli KEYS "user_session:*"   # list matching keys (KEYS blocks on huge datasets — use SCAN in prod)
+redis-cli HGETALL user_session:1  # see one user's cached session
+redis-cli TTL user_session:1      # seconds left until auto-expiry (-1 = no TTL, -2 = key doesn't exist)
+
+#📌 Clear cache manually
+redis-cli DEL user_session:1      # one key
+redis-cli FLUSHALL                # ⚠️ everything in the current DB — destructive, don't run on prod casually
+
+#📌 Health / stats
+redis-cli INFO server
+redis-cli INFO memory
+redis-cli MONITOR                 # live-tail every command hitting Redis (Ctrl+C to stop)
+```
+
 # Migration env
 
 ```py
