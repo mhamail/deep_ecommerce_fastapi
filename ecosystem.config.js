@@ -5,7 +5,36 @@
 module.exports = {
   apps: [
     {
-      name: "deep-ecom-backend",
+      name: "deep-ecom-backend-prod",
+      script: "./start.sh",
+      interpreter: "bash",
+      // __dirname always resolves to wherever this file itself lives, so
+      // this stays correct whether it's your self-hosted runner's checkout
+      // path (which lives under actions-runner/_work/... and isn't fixed)
+      // or a manual clone anywhere else — no hardcoded path needed.
+      cwd: __dirname,
+      // start.sh forks its own uvicorn worker processes — PM2 should run
+      // exactly one instance of the supervisor script, not fork this itself.
+      instances: 1,
+      exec_mode: "fork",
+      autorestart: true,
+      watch: false,
+      max_memory_restart: "500M",
+      env: {
+        PORT: "8001",
+        UVICORN_WORKERS: "4",
+        DATABASE_URL:
+          "postgresql://admin:test_020@163.245.219.228:5432/testecomdb",
+        MEDIA_FOLDER: "test",
+        DOMAIN: "https://buyagain.pk",
+      },
+      out_file: "./logs/prod-out.log",
+      error_file: "./logs/prod-error.log",
+      merge_logs: true,
+      time: true,
+    },
+    {
+      name: "deep-ecom-backend-test",
       script: "./start.sh",
       interpreter: "bash",
       // __dirname always resolves to wherever this file itself lives, so
@@ -24,8 +53,11 @@ module.exports = {
       max_memory_restart: "500M",
 
       env: {
-        PORT: "8001",
-        UVICORN_WORKERS: "4",
+        PORT: "8002",
+        UVICORN_WORKERS: "1",
+        DATABASE_URL:
+          "postgresql://admin:test_020@163.245.219.228:5432/testecomdb",
+        MEDIA_FOLDER: "test",
       },
 
       out_file: "./logs/pm2-out.log",

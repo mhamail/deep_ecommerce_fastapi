@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL")
+MEDIA_FOLDER = os.getenv("MEDIA_FOLDER", "media")
 SECRET_KEY = os.getenv("SECRET_KEY")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(
     os.getenv(
@@ -30,6 +31,7 @@ SMTP_USER = os.getenv("SMTP_USER", "youremail@gmail.com")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "yourpassword")
 SMTP_FROM = os.getenv("SMTP_FROM", SMTP_USER)
 RESET_URL = os.getenv("RESET_URL", f"{DOMAIN}/reset-password")
+
 
 
 AUTH_PASSWORD = os.getenv("AUTH_PASSWORD")

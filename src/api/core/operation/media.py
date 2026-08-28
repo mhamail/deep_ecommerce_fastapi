@@ -15,9 +15,10 @@ from sqlalchemy import func
 import os
 from typing import Any, List, Optional, TypedDict, Union
 from sqlmodel import select
+from src.config import MEDIA_FOLDER
 
 BASE_DIR = "/var/www"
-SUB_DIR = "buyagainmedia"
+SUB_DIR = MEDIA_FOLDER
 MEDIA_DIR = os.path.join(BASE_DIR, SUB_DIR)
 
 ALLOWED_RAW_EXT = [".webp", ".avif", ".ico", ".svg"]
@@ -405,7 +406,9 @@ async def arrangeUpdateMultiMedia(
 
     new_uploaded_images = []
     if new_files:
-        new_uploaded_images = await uploadMultiMedia(new_files, session, shop_id=shop_id)
+        new_uploaded_images = await uploadMultiMedia(
+            new_files, session, shop_id=shop_id
+        )
 
     # ==========================
     # MERGE
