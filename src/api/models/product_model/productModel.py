@@ -46,6 +46,9 @@ class Product(TimeStampedModel, table=True):
     meta_title: Optional[str] = Field(default=None, max_length=191)
     meta_description: Optional[str] = None
 
+    # Media (external link, e.g. YouTube/Vimeo)
+    video_url: Optional[str] = Field(default=None, max_length=500)
+
     # Status
     is_active: bool = Field(default=True)
     is_featured: bool = Field(default=False)
@@ -142,6 +145,9 @@ class ProductBase(SQLModel):
     meta_title: Optional[str] = None
     meta_description: Optional[str] = None
 
+    # Media (external link, e.g. YouTube/Vimeo)
+    video_url: Optional[str] = None
+
     # Status
     is_active: bool
     is_featured: bool
@@ -205,6 +211,8 @@ class ProductForm:
         # SEO
         meta_title: Optional[str] = Form(""),
         meta_description: Optional[str] = Form(""),
+        # Media (external link, e.g. YouTube/Vimeo)
+        video_url: Optional[str] = Form(""),
         # relations
         category_id: Optional[int] = Form(None),
     ):
@@ -231,5 +239,8 @@ class ProductForm:
         # SEO
         self.meta_title = clean(meta_title)
         self.meta_description = clean(meta_description)
+
+        # Media (external link, e.g. YouTube/Vimeo)
+        self.video_url = clean(video_url)
         # relations
         self.category_id = category_id
