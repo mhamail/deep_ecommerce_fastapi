@@ -286,8 +286,6 @@ async def update_product(
     # ==========================
     updated_product = updateOp(product, request, session)
 
-    import json
-
     print(
         "....................................................",
         json.dumps(vars(request), indent=2, default=str),

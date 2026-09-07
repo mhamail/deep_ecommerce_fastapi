@@ -145,9 +145,6 @@ class ProductBase(SQLModel):
     meta_title: Optional[str] = None
     meta_description: Optional[str] = None
 
-    # Media (external link, e.g. YouTube/Vimeo)
-    video_url: Optional[str] = None
-
     # Status
     is_active: bool
     is_featured: bool
@@ -179,6 +176,8 @@ class ProductRead(ProductBase, TimeStampReadModel):
 
 
 class ProductSingleRead(ProductBase, TimeStampReadModel):
+    # Media (external link, e.g. YouTube/Vimeo)
+    video_url: Optional[str] = None
     variants: Optional[List[ProductVariantRead]] = None
 
 
