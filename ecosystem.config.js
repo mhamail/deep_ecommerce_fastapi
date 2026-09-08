@@ -24,8 +24,8 @@ module.exports = {
         PORT: "8001",
         UVICORN_WORKERS: "4",
         DATABASE_URL:
-          "postgresql://admin:test_020@163.245.219.228:5432/testecomdb",
-        MEDIA_FOLDER: "test",
+          "postgresql://ecomdbadmin:ecom_020!!!@163.245.219.228:5432/testecomdb",
+        MEDIA_FOLDER: "ecom_media",
         DOMAIN: "https://buyagain.pk",
       },
       out_file: "./logs/prod-out.log",
