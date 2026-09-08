@@ -202,8 +202,17 @@ def listRecords(
             400,
             f"Invalid pagination values: {str(e).splitlines()[0]}",
         )
-    # finally:
-    #     session.close()
+    finally:
+        # This session is obtained via next(get_session()) rather than
+        # FastAPI's Depends() — meaning get_session()'s own `finally:
+        # session.close()` never runs on its own here, since a generator
+        # advanced with next() only reaches its `yield`, never its cleanup,
+        # unless something explicitly drives it to completion. Every one of
+        # this app's list endpoints goes through listRecords(), so leaving
+        # this uncommented (as it was) leaked one DB connection, permanently
+        # "idle in transaction", on every single list request — which is
+        # exactly what was piling up and blocking ALTER TABLE migrations.
+        session.close()
 
 
 def serialize_obj(obj):

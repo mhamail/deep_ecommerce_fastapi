@@ -27,6 +27,7 @@ class Product(TimeStampedModel, table=True):
     name: str = Field(max_length=191, index=True)
     slug: str = Field(max_length=191, unique=True, index=True)
     description: Optional[str] = None
+    whats_in_box: Optional[str] = None
 
     # Media
     thumbnail: Optional[dict] = Field(default=None, sa_column=Column(JSON))
@@ -178,6 +179,7 @@ class ProductRead(ProductBase, TimeStampReadModel):
 class ProductSingleRead(ProductBase, TimeStampReadModel):
     # Media (external link, e.g. YouTube/Vimeo)
     video_url: Optional[str] = None
+    whats_in_box: Optional[str] = None
     variants: Optional[List[ProductVariantRead]] = None
 
 
@@ -187,6 +189,7 @@ class ProductForm:
         # Basic Info
         name: Optional[str] = Form(""),
         description: Optional[str] = Form(""),
+        whats_in_box: Optional[str] = Form(""),
         # Status
         is_active: Optional[bool] = Form(True),
         is_featured: Optional[bool] = Form(False),
@@ -221,6 +224,7 @@ class ProductForm:
         # ==========================
         self.name = clean(name)
         self.description = clean(description)
+        self.whats_in_box = clean(whats_in_box)
 
         self.is_active = to_bool(is_active) if is_active is not None else True
         self.is_featured = to_bool(is_featured) if is_featured is not None else False
