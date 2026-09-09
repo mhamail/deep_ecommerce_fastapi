@@ -10,7 +10,7 @@ from os import getenv
 from pydantic import ValidationError
 from sqlmodel import SQLModel, create_engine
 
-# from src.config import DATABASE_URL
+from src.config import DATABASE_URL
 from src.api.routers.product import productRoute, productVariantRoute
 from src.api.routers.order import OrderRoute, orderItemRoute
 from src.api.routers.dashboard import dashboardRoute
@@ -33,7 +33,7 @@ from src.api.routers.cart import cartRoute, cartItemRoute
 from src.api.routers import addressRoute, mediaRoute
 
 # DATABASE_URL = getenv("DATABASE_URL", "sqlite:///./database.db")
-engine = create_engine(DATABASE_URL, echo=True)
+# engine = create_engine(DATABASE_URL, echo=True)
 
 
 @asynccontextmanager

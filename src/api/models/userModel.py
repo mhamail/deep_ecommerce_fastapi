@@ -59,11 +59,17 @@ class User(
 
     use_token: Optional[str] = Field(default=None)
 
-    country: Optional[str] = Field(default=None, description="Country name (e.g., Pakistan)")
-    country_code: Optional[str] = Field(default=None, description="Country code (e.g., PK)")
-    currency_code: Optional[str] = Field(default=None, description="Currency code (e.g., PKR)")
+    country: Optional[str] = Field(
+        default="Pakistan", description="Country name (e.g., Pakistan)"
+    )
+    country_code: Optional[str] = Field(
+        default="PK", description="Country code (e.g., PK)"
+    )
+    currency_code: Optional[str] = Field(
+        default="PKR", description="Currency code (e.g., PKR)"
+    )
     currency_symbol: Optional[str] = Field(
-        default=None, description="Currency symbol (e.g., ₨)"
+        default="Rs", description="Currency symbol (e.g., ₨)"
     )
     default_shop_id: Optional[int] = Field(
         default=None, foreign_key="shops.id", index=True
@@ -153,10 +159,10 @@ class UserCreate(SQLModel):
     phone: str
     password: str
     confirm_password: str
-    country: str
-    country_code: str
-    currency_code: str
-    currency_symbol: str
+    country: Optional[str] = "Pakistan"
+    country_code: Optional[str] = "PK"
+    currency_code: Optional[str] = "PKR"
+    currency_symbol: Optional[str] = "Rs"
 
     @model_validator(mode="before")
     def check_password_match(cls, values):

@@ -24,7 +24,7 @@ module.exports = {
         PORT: "8001",
         UVICORN_WORKERS: "4",
         DATABASE_URL:
-          "postgresql://ecomdbadmin:ecom_020!!!@163.245.219.228:5432/testecomdb",
+          "postgresql://ecomdbadmin:ecom_020!!!@163.245.219.228:5432/ecomdb",
         MEDIA_FOLDER: "ecom_media",
         DOMAIN: "https://buyagain.pk",
       },

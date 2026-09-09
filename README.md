@@ -113,6 +113,39 @@ alembic stamp head # mark DB as up-to-date
 alembic stamp <revision_id> # force DB revision
 ```
 
+# Setting up a new/fresh database
+
+⚠️ `alembic upgrade head` does **not** work on an empty database for this
+project — the migration chain has no true baseline (the first migration,
+`migrations/versions/9a2c5fdc5d6c_initialize.py`, assumes base tables
+already exist). Use the bootstrap script instead:
+
+```bash
+#📌 1. Point DATABASE_URL (.env or shell env) at the new database first.
+#    Make sure that DB user actually owns/has full privileges on it —
+#    a role with no privileges will fail with "permission denied", not a
+#    helpful "wrong database" message.
+
+#📌 2. One command does everything: creates the order_number_seq sequence
+#    create_all() can't create on its own, creates every table from the
+#    current models, and stamps Alembic at head.
+uv run python scripts/bootstrap_db.py
+
+#📌 3. Verify
+uv run alembic current   # should print the head revision
+
+#📌 4. Bootstrap the first account (a fresh DB has zero users/shops)
+# POST /init                                -> creates root admin (is_root=True)
+# Manually — no phone-verify route exists yet:
+#   UPDATE users SET verified = true, phone = '+10000000000' WHERE id = 1;
+# POST /login                               -> get access token
+# POST /shop/create  (with that token)      -> note the returned shop id
+```
+
+Safe to re-run `bootstrap_db.py` against a DB that already has tables —
+`create_all()` only creates what's missing, and stamping head just
+overwrites Alembic's bookkeeping row with the same value.
+
 # Redis
 
 ```bash
