@@ -26,6 +26,7 @@ class Product(TimeStampedModel, table=True):
     # Basic Info
     name: str = Field(max_length=191, index=True)
     slug: str = Field(max_length=191, unique=True, index=True)
+    short_description: Optional[str] = Field(default=None, max_length=300)
     description: Optional[str] = None
     whats_in_box: Optional[str] = None
 
@@ -132,6 +133,7 @@ class ProductBase(SQLModel):
     # Basic
     name: str
     slug: str
+    short_description: Optional[str] = None
     description: Optional[str] = None
 
     # Media
@@ -188,6 +190,7 @@ class ProductForm:
         self,
         # Basic Info
         name: Optional[str] = Form(""),
+        short_description: Optional[str] = Form(""),
         description: Optional[str] = Form(""),
         whats_in_box: Optional[str] = Form(""),
         # Status
@@ -223,6 +226,7 @@ class ProductForm:
         # Assign values
         # ==========================
         self.name = clean(name)
+        self.short_description = clean(short_description)
         self.description = clean(description)
         self.whats_in_box = clean(whats_in_box)
 
