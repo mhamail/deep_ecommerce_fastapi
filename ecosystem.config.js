@@ -26,7 +26,7 @@ module.exports = {
         DATABASE_URL:
           "postgresql://ecomdbadmin:ecom_020!!!@163.245.219.228:5432/ecomdb",
         MEDIA_FOLDER: "ecom_media",
-        DOMAIN: "https://buyagain.pk",
+        DOMAIN: "http://localhost:8001/api",
       },
       out_file: "./logs/prod-out.log",
       error_file: "./logs/prod-error.log",
@@ -58,6 +58,7 @@ module.exports = {
         DATABASE_URL:
           "postgresql://admin:test_020@163.245.219.228:5432/testecomdb",
         MEDIA_FOLDER: "test",
+        DOMAIN: "http://localhost:8002/api",
       },
 
       out_file: "./logs/pm2-out.log",
