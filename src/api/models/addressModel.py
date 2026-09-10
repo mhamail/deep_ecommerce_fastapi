@@ -14,7 +14,7 @@ class AddressDetail(BaseModel):
     phone: Optional[str] = PydanticField(default=None, max_length=20)
     person_name: Optional[str] = PydanticField(default=None, max_length=191)
 
-    state: Optional[str] = None
+    region: Optional[str] = None
     postal_code: Optional[str] = None
     country: Optional[str] = None
     details: str = PydanticField(..., max_length=250)

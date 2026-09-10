@@ -85,7 +85,7 @@ class OrderCreate(SQLModel):
         "phone": "",
         "person_name": "",
         "city": "",
-        "state": "",
+        "region": "",
         "postal_code": "",
         "country": "",
     }
