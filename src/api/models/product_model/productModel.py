@@ -26,7 +26,7 @@ class Product(TimeStampedModel, table=True):
     # Basic Info
     name: str = Field(max_length=191, index=True)
     slug: str = Field(max_length=191, unique=True, index=True)
-    short_description: Optional[str] = Field(default=None, max_length=300)
+    short_description: Optional[str] = Field(default=None, max_length=800)
     description: Optional[str] = None
     whats_in_box: Optional[str] = None
 
