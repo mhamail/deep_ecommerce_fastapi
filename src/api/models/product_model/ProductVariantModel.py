@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING, Optional, List, Union
 from fastapi import File, Form, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from sqlmodel import JSON, SQLModel, Field, Relationship, Column
 
 
@@ -70,6 +70,30 @@ class ProductVariantRead(SQLModel, TimeStampReadModel):
 
     # Media
     image: Optional[MediaRead] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def fallback_to_product_thumbnail(cls, values):
+        image = (
+            values.get("image")
+            if isinstance(values, dict)
+            else getattr(values, "image", None)
+        )
+        if image:
+            return values
+
+        product = (
+            values.get("product")
+            if isinstance(values, dict)
+            else getattr(values, "product", None)
+        )
+        thumbnail = getattr(product, "thumbnail", None) if product else None
+        if thumbnail:
+            if isinstance(values, dict):
+                values = {**values, "image": thumbnail}
+            else:
+                values.image = thumbnail
+        return values
 
 
 class ProductVariantForm:

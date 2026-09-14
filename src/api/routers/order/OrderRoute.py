@@ -145,6 +145,7 @@ def resolve_manual_order_items(session: GetSession, manual_items_data: list[dict
             continue
         variant = get_product_variant(session, variant_id)
         raiseExceptions((variant, 404, f"Product variant {variant_id} not found"))
+        print("======================================", variant.product.thumbnail)
         items_data.append(
             {
                 "variant": variant,
@@ -154,7 +155,7 @@ def resolve_manual_order_items(session: GetSession, manual_items_data: list[dict
                 "product_name": variant.product.name,
                 "variant_attributes": variant.attributes,
                 "shop_id": variant.product.shop_id,
-                "image": variant.image,
+                "image": variant.image or variant.product.thumbnail,
                 "price": variant.discount_price or variant.price,
                 "actual_price": variant.price,
             }
@@ -310,7 +311,7 @@ async def create_order(
         body=order_template(order, items),
     )
 
-    session.commit()
+    # session.commit()
     session.refresh(order)
 
     return api_response(201, "Order Created Successfully", order_read)
