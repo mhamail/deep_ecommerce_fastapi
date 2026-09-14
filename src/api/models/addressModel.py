@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING, Optional
 
-from pydantic import BaseModel, Field as PydanticField, field_validator
+from pydantic import BaseModel, EmailStr, Field as PydanticField, field_validator
 from sqlmodel import JSON, Column, Field, Relationship, SQLModel
 
 from src.api.models.baseModel import TimeStampedModel
@@ -18,6 +18,12 @@ class AddressDetail(BaseModel):
     postal_code: Optional[str] = None
     country: Optional[str] = None
     details: str = PydanticField(..., max_length=250)
+
+    # Guest contact (a signed-in order's contact is the account's own
+    # email — this is only ever filled in for a guest order, and lives here
+    # rather than as a separate top-level order field since shipping_address
+    # is already the one place a manual order carries contact info inline).
+    email: Optional[EmailStr] = None
 
 
 class Location(BaseModel):

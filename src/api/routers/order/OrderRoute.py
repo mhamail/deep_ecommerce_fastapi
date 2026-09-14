@@ -12,6 +12,7 @@ from src.api.core.smtp import send_email, send_email_options
 from src.api.core.dependencies import (
     GetSession,
     ListQueryParams,
+    isAuthenticated,
     requireDefaultShop,
     requireSignin,
     requireAdmin,
@@ -74,7 +75,8 @@ def remove_variant_stock(variant: ProductVariant, quantity: int):
 
 
 def get_default_shipping_address(session: GetSession, user_id: int) -> Optional[dict]:
-    """Build a shipping_address dict from the user's profile + default address."""
+    """Build a shipping_address dict from the user's saved default address —
+    cart-mode only, since that mode has no inline address of its own."""
     addr = session.exec(
         select(UserAddress).where(
             UserAddress.user_id == user_id,
@@ -83,13 +85,81 @@ def get_default_shipping_address(session: GetSession, user_id: int) -> Optional[
     ).first()
 
     raiseExceptions(
+        (addr, 400, "Add a shipping address before ordering from your cart")
+    )
+    validate_shipping_address(addr.address)
+    return addr.address
+
+
+def validate_shipping_address(address: Optional[dict]) -> None:
+    raiseExceptions(
         (
-            addr.address.get("details") and addr.address.get("phone"),
+            address and address.get("details") and address.get("phone"),
             400,
             "Shipping details/phone are required",
         )
     )
-    return addr.address
+
+
+def resolve_cart_order_items(
+    session: GetSession, cart_item_ids: list[int], user_id: int
+):
+    """Cart-mode item resolution — reads real CartItem rows, which only ever
+    exist for a signed-in user (there's no guest cart in the schema)."""
+    cart_items = get_cart_items_by_ids(session, cart_item_ids, user_id)
+    raiseExceptions((cart_items, 404, "No valid cart items found for this user"))
+
+    items_data = [
+        {
+            "variant": item.variant,
+            "id": item.id,
+            "product_variant_id": item.product_variant_id,
+            "product_id": item.product_id,
+            "product_name": item.product_name,
+            "variant_attributes": item.variant_attributes,
+            "shop_id": item.cart.shop_id,
+            "image": item.image,
+            "quantity": item.quantity,
+            "price": item.price,
+            "actual_price": item.actual_price,
+        }
+        for item in cart_items
+    ]
+    return items_data, cart_items
+
+
+def resolve_manual_order_items(session: GetSession, manual_items_data: list[dict]):
+    """Manual-mode item resolution — builds items straight from
+    {product_variant_id, quantity} pairs, no Cart/CartItem row involved at
+    all. This is the one function behind every manual order: a signed-in
+    "Buy Now" single item, and a full cart checked out at once (whether that
+    cart is a signed-in account's or was only ever held client-side by a
+    guest) — both send the exact same `items` shape, so there's nothing
+    cart-size-specific to split into a second function."""
+    raiseExceptions((manual_items_data, 400, "items are required for manual order"))
+
+    items_data = []
+    for item in manual_items_data:
+        variant_id = item.get("product_variant_id")
+        if not variant_id:
+            continue
+        variant = get_product_variant(session, variant_id)
+        raiseExceptions((variant, 404, f"Product variant {variant_id} not found"))
+        items_data.append(
+            {
+                "variant": variant,
+                "product_variant_id": variant.id,
+                "product_id": variant.product_id,
+                "quantity": item.get("quantity", 1),
+                "product_name": variant.product.name,
+                "variant_attributes": variant.attributes,
+                "shop_id": variant.product.shop_id,
+                "image": variant.image,
+                "price": variant.discount_price or variant.price,
+                "actual_price": variant.price,
+            }
+        )
+    return items_data
 
 
 def insertOrderItems(session, items_data, order):
@@ -134,74 +204,47 @@ def destock_product_variants(session, items_data):
 
 
 @router.post("/create", response_model=OrderRead)
-async def create_order(session: GetSession, request: OrderCreate, user: requireSignin):
+async def create_order(
+    session: GetSession, request: OrderCreate, user: isAuthenticated
+):
     data = request.model_dump()
 
     # Strip fields that are not Order table columns
     cart_item_ids = data.pop("cart_item_ids", None) or []
-    user_id = user["id"]
-    # manuals
     manual_items_data = data.pop("items", []) or []
+    user_id = user["id"] if user else None
 
     # ─────────────────────────────────────────────
-    # MODE 1 — Cart-based order
-    # Send: cart_item_ids + user_id
-    # Address auto-fetched from user's default address
+    # MODE 1 — Cart-based order (send cart_item_ids)
+    # Requires a signed-in user — there is no guest cart in the schema, so
+    # this mode always re-scopes through the account's own CartItem rows.
+    # Address comes from the account's saved default, not the request body.
     # ─────────────────────────────────────────────
-    items_data = []
-
-    raiseExceptions((user_id, 400, "user_id is required"))
-    data["shipping_address"] = get_default_shipping_address(session, user_id)
+    cart_items = []
     if cart_item_ids:
-
-        cart_items = get_cart_items_by_ids(session, cart_item_ids, user_id)
-        raiseExceptions((cart_items, 404, "No valid cart items found for this user"))
-
-        items_data = [
-            {
-                "variant": item.variant,
-                "id": item.id,
-                "product_variant_id": item.product_variant_id,
-                "product_id": item.product_id,
-                "product_name": item.product_name,
-                "variant_attributes": item.variant_attributes,
-                "shop_id": item.cart.shop_id,
-                "image": item.image,
-                "quantity": item.quantity,
-                "price": item.price,
-                "actual_price": item.actual_price,
-            }
-            for item in cart_items
-        ]
+        raiseExceptions((user_id, 401, "Sign in to order from your cart"))
+        items_data, cart_items = resolve_cart_order_items(
+            session, cart_item_ids, user_id
+        )
+        data["shipping_address"] = get_default_shipping_address(session, user_id)
+        data["shipping_address"]["email"] = user.get(
+            "email"
+        )  # override any guest email
 
     # ─────────────────────────────────────────────
-    # MODE 2 — Manual order
+    # MODE 2 — Manual order (send items + shipping_address inline)
+    # Works signed-in or as a guest (user_id stays None) — a single "Buy Now"
+    # item, or a whole cart (signed-in or held only client-side) checked out
+    # at once. Never touches Cart/CartItem; the request's own inline address
+    # is used as-is instead of being silently replaced by a saved default.
     # ─────────────────────────────────────────────
     else:
-        raiseExceptions((manual_items_data, 400, "items are required for manual order"))
-
-        for item in manual_items_data:
-            variant = None
-            variant_id = item.get("product_variant_id")
-            if variant_id:
-                variant = get_product_variant(session, variant_id)
-                raiseExceptions(
-                    (variant, 404, f"Product variant {variant_id} not found")
-                )
-                items_data.append(
-                    {
-                        "variant": variant,
-                        "product_variant_id": variant.id,
-                        "product_id": variant.product_id,
-                        "quantity": item.get("quantity", 1),
-                        "product_name": variant.product.name,
-                        "variant_attributes": variant.attributes,
-                        "shop_id": variant.product.shop_id,
-                        "image": variant.image,
-                        "price": variant.discount_price or variant.price,
-                        "actual_price": variant.price,
-                    }
-                )
+        items_data = resolve_manual_order_items(session, manual_items_data)
+        validate_shipping_address(data.get("shipping_address"))
+        if user:
+            # Signed in "Buy Now" — same override as cart-mode above: the
+            # account's real email wins over anything sent in the request.
+            data["shipping_address"]["email"] = user.get("email")
 
     raiseExceptions((items_data, 400, "Order must have at least one item"))
 

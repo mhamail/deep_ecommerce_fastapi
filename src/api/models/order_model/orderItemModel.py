@@ -65,6 +65,10 @@ class OrderItem(TimeStampedModel, table=True):
     # relationships
     order: "Order" = Relationship(back_populates="items")
 
+    @property
+    def shipping_address(self) -> Optional[dict]:
+        return self.order.shipping_address if self.order else None
+
 
 class OrderItemsRead(SQLModel):
     id: int
@@ -79,6 +83,7 @@ class OrderItemsRead(SQLModel):
     actual_price: Optional[float] = None
     quantity: int
     image: Optional[MediaRead] = None
+    shipping_address: Optional[dict] = None
 
     class Config:
         from_attributes = True
