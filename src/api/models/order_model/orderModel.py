@@ -8,7 +8,7 @@ from src.api.models.addressModel import AddressDetail
 from src.api.models.baseModel import TimeStampReadModel, TimeStampedModel
 
 if TYPE_CHECKING:
-    from src.api.models import User, Shop
+    from src.api.models import User
 
 
 class Order(TimeStampedModel, table=True):

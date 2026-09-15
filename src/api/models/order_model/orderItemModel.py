@@ -5,7 +5,7 @@ from sqlalchemy import Column, JSON
 from sqlmodel import Field, Relationship, SQLModel
 
 from src.api.models.mediaModel import MediaRead
-from src.api.models.baseModel import TimeStampedModel
+from src.api.models.baseModel import TimeStampReadModel, TimeStampedModel
 
 if TYPE_CHECKING:
     from src.api.models import Order
@@ -70,7 +70,7 @@ class OrderItem(TimeStampedModel, table=True):
         return self.order.shipping_address if self.order else None
 
 
-class OrderItemsRead(SQLModel):
+class OrderItemsRead(SQLModel, TimeStampReadModel):
     id: int
     order_id: int
     product_id: Optional[int] = None
