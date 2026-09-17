@@ -11,7 +11,7 @@ from pydantic import ValidationError
 from sqlmodel import SQLModel, create_engine
 
 from src.config import DATABASE_URL
-from src.api.routers.product import productRoute, productVariantRoute
+from src.api.routers.product import productRoute, productVariantRoute, productAiRoute
 from src.api.routers.order import OrderRoute, orderItemRoute
 from src.api.routers.dashboard import dashboardRoute
 
@@ -166,6 +166,7 @@ app.include_router(shopChildRoute.router)
 app.include_router(categoryRoute.router)
 app.include_router(productRoute.router)
 app.include_router(productVariantRoute.router)
+app.include_router(productAiRoute.router)
 app.include_router(cartRoute.router)
 app.include_router(cartItemRoute.router)
 app.include_router(OrderRoute.router)

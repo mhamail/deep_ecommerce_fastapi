@@ -23,6 +23,13 @@ DOMAIN = os.getenv("DOMAIN")
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0")
 
+# AI providers — product-listing text generation (src/api/core/ai/).
+# Model name is env-overridable since Google retires/renames model ids
+# faster than this code changes (already had to bump this once).
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
+CLAUDE_API_KEY = os.getenv("CLAUDE_API_KEY")  # not wired up yet — key only, for later
+
 
 # Email
 SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
