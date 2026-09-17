@@ -43,6 +43,7 @@ def _variant_payload(product_id: int, variant: dict):
         "discount_price": variant.get("discount_price"),
         "stock": variant.get("stock", 0),
         "is_in_stock": variant.get("is_in_stock", True),
+        "weight": variant.get("weight"),
         "sku": variant.get("sku"),
         "attributes": variant.get("attributes", {}),
         "image": variant.get("image"),

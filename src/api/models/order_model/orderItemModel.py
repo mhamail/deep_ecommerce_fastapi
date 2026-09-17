@@ -50,6 +50,11 @@ class OrderItem(TimeStampedModel, table=True):
     price: float
     actual_price: float
 
+    # Snapshot of the variant's weight (kg) at order time — the variant
+    # itself can change/be deleted later, this is what shipping was
+    # actually calculated against for this order.
+    weight: float | None = None
+
     # Snapshot of the variant's attributes dict at order time (matches
     # ProductVariant.attributes / CartItem.variant_attributes, both dicts).
     variant_attributes: dict | None = Field(
@@ -81,6 +86,7 @@ class OrderItemsRead(SQLModel, TimeStampReadModel):
     variant_attributes: Optional[dict] = None
     price: float
     actual_price: Optional[float] = None
+    weight: Optional[float] = None
     quantity: int
     image: Optional[MediaRead] = None
     shipping_address: Optional[dict] = None

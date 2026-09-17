@@ -169,6 +169,7 @@ class ProductVariantBase(SQLModel):
     discount_price: Optional[float]
     stock: Optional[int]
     is_in_stock: Optional[bool]
+    weight: Optional[float] = None
     image: Optional[MediaRead] = None
     position: int = 0
     attributes: Optional[dict]

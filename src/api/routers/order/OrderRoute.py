@@ -122,6 +122,7 @@ def resolve_cart_order_items(
             "quantity": item.quantity,
             "price": item.price,
             "actual_price": item.actual_price,
+            "weight": item.variant.weight if item.variant else None,
         }
         for item in cart_items
     ]
@@ -158,6 +159,7 @@ def resolve_manual_order_items(session: GetSession, manual_items_data: list[dict
                 "image": variant.image or variant.product.thumbnail,
                 "price": variant.discount_price or variant.price,
                 "actual_price": variant.price,
+                "weight": variant.weight,
             }
         )
     return items_data
@@ -174,6 +176,7 @@ def insertOrderItems(session, items_data, order):
             quantity=item["quantity"],
             price=item["price"],
             actual_price=item["actual_price"],
+            weight=item.get("weight"),
             variant_attributes=item["variant_attributes"],
             image=item["image"],
         )

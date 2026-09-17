@@ -30,6 +30,10 @@ class ProductVariant(TimeStampedModel, table=True):
     stock: int = Field(default=0)
     is_in_stock: bool = Field(default=True)
 
+    # Shipping — kg, optional (not every product needs weight-based
+    # shipping); snapshotted onto OrderItem at order time (see OrderRoute.py).
+    weight: Optional[float] = None
+
     # Display order within the product's variant list.
     position: int = Field(default=0)
 
@@ -60,6 +64,9 @@ class ProductVariantRead(SQLModel, TimeStampReadModel):
     sku: Optional[str] = None
     stock: int
     is_in_stock: bool
+
+    # Shipping (kg)
+    weight: Optional[float] = None
 
     # Display order within the product's variant list.
     position: int = 0
@@ -114,6 +121,10 @@ class ProductVariantForm:
         stock: Optional[int] = Form(None),
         is_in_stock: Optional[bool] = Form(True),
         # -------------------------
+        # Shipping
+        # -------------------------
+        weight: Optional[float] = Form(None),
+        # -------------------------
         # Media
         # -------------------------
         image: Optional[Union[UploadFile, str]] = File(None),
@@ -145,6 +156,8 @@ class ProductVariantForm:
 
         self.stock = to_int(stock) or 0
         self.is_in_stock = to_bool(is_in_stock) if is_in_stock is not None else True
+
+        self.weight = to_float(weight)
 
         # Media
         self.image = image
