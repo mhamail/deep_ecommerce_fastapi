@@ -199,7 +199,12 @@ class ProductForm:
         is_featured: Optional[bool] = Form(False),
         # Media
         thumbnail: Optional[Union[UploadFile, str]] = File(None),
-        images: List[UploadFile] = File(default_factory=list),
+        # A plain string here can be either an already-stored filename
+        # (existing-media reference) or an http(s) URL to fetch — the AI/n8n
+        # import flow sends raw source-site image URLs alongside real
+        # uploads under the same "images" key; productRoute resolves which
+        # is which before the upload pipeline sees them.
+        images: List[Union[UploadFile, str]] = File(default_factory=list),
         delete_images: Optional[List[str]] = Form(None),
         # JSON fields
         attributes: Optional[str] = Form(None),

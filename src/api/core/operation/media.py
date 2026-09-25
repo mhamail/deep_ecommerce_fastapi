@@ -242,6 +242,14 @@ class _DownloadedFile:
         return self.file.read()
 
 
+def is_image_url(value: Any) -> bool:
+    """True for an http(s) URL string — as opposed to an already-stored
+    media filename, which is also a plain string but never a full URL."""
+    return isinstance(value, str) and value.strip().lower().startswith(
+        ("http://", "https://")
+    )
+
+
 async def download_and_save_image(
     url: str, session, shop_id: Optional[int] = None, retries: int = 3
 ) -> Optional[dict]:

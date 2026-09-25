@@ -29,6 +29,8 @@ from src.api.core.operation.media import (
     arrangeUpdateMultiMedia,
     arrangeUpdateMultiMedia,
     deleteMediaFiles,
+    download_and_save_image,
+    is_image_url,
     uploadMediaFiles,
     uploadSingleMedia,
 )
@@ -66,6 +68,32 @@ def _update_variant_from_payload(product_variant: ProductVariant, payload: dict)
 
         if value is not None and hasattr(product_variant, field):
             setattr(product_variant, field, value)
+
+
+async def _resolve_thumbnail_url(thumbnail, session, shop_id):
+    """If `thumbnail` is a raw http(s) URL (e.g. from the n8n product-import
+    automation), download it into a real Media record now and return that —
+    otherwise None, so the caller leaves it for the normal uploadMediaFiles/
+    uploadSingleMedia pipeline (an UploadFile, or an existing-media filename
+    string)."""
+    if is_image_url(thumbnail):
+        return await download_and_save_image(thumbnail, session, shop_id=shop_id)
+    return None
+
+
+async def _split_image_urls(images: list, session, shop_id):
+    """Splits a raw `images` list (a mix of UploadFile and str, per
+    ProductForm) into the items to hand to the normal upload pipeline
+    (UploadFiles and existing-media filename strings, untouched) and the
+    http(s) URLs downloaded here directly into real Media records."""
+    remaining = [item for item in images if not is_image_url(item)]
+    downloaded = []
+    for item in images:
+        if is_image_url(item):
+            saved = await download_and_save_image(item, session, shop_id=shop_id)
+            if saved:
+                downloaded.append(saved)
+    return remaining, downloaded
 
 
 def _extract_variant_images(form_data) -> dict:
@@ -124,6 +152,15 @@ async def upsert_product_variants(
         variant["position"] = index
         variant_id = variant.get("id")
         image_file = variant_images.get(index)
+
+        # No uploaded file for this variant, but its "image" came through as
+        # a raw URL (n8n product-import) — download it now so the rest of
+        # this function sees the same {id, filename, original, media_type}
+        # shape a real upload would have produced.
+        if not image_file and is_image_url(variant.get("image")):
+            variant["image"] = await download_and_save_image(
+                variant["image"], session, shop_id=product.shop_id
+            )
 
         if variant_id:
             product_variant = session.exec(
@@ -210,9 +247,28 @@ async def create_product(
     request.created_by = user_id
     request.shop_id = shop_id
 
+    # Resolve raw image URLs , before
+    # the normal uploadMediaFiles pass — that pipeline only knows how to
+    # handle UploadFile objects and existing-media filename strings, so a
+    # source-site URL is downloaded here instead and merged in afterward.
+    thumbnail_from_url = await _resolve_thumbnail_url(
+        request.thumbnail, session, shop_id=shop_id
+    )
+    if thumbnail_from_url:
+        request.thumbnail = None  # already resolved; keep it out of uploadMediaFiles
+
+    request.images, images_from_url = await _split_image_urls(
+        request.images, session, shop_id=shop_id
+    )
+
     data = serialize_obj(request)
 
     await uploadMediaFiles(session, data, request, shop_id=shop_id)
+
+    if thumbnail_from_url:
+        data["thumbnail"] = thumbnail_from_url
+    if images_from_url:
+        data["images"] = [*data.get("images", []), *images_from_url]
 
     # ==========================
     # Create product
@@ -265,10 +321,22 @@ async def update_product(
         request.thumbnail = await uploadSingleMedia(
             request.thumbnail, session, shop_id=shop_id
         )
+    elif is_image_url(request.thumbnail):
+        # Raw source-site URL (n8n product-import automation) — download it
+        # into a real Media record the same way a fresh upload would be.
+        if product.thumbnail:
+            await deleteMediaFiles(session, product.thumbnail)
+        request.thumbnail = await download_and_save_image(
+            request.thumbnail, session, shop_id=shop_id
+        )
+
+    request.images, images_from_url = await _split_image_urls(
+        request.images or [], session, shop_id=shop_id
+    )
 
     # Run even when there are no new files, as long as something is being
     # removed — a delete-only edit (no new upload) must still persist.
-    if request.images or request.delete_images:
+    if request.images or request.delete_images or images_from_url:
         request.images = await arrangeUpdateMultiMedia(
             session,
             product.images,
@@ -276,6 +344,8 @@ async def update_product(
             request.delete_images,
             shop_id=shop_id,
         )
+        if images_from_url:
+            request.images = [*request.images, *images_from_url]
     else:
         # Neither add nor remove anything — leave the stored list untouched
         # (updateOp below would otherwise overwrite it with the empty [] the
