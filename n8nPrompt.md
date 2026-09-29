@@ -128,28 +128,45 @@ SEO:
 
 ```js
 const html = $json.data || "";
+const MAX_IMAGES = 8;
 
-// The page's own URL — needed to resolve relative/protocol-relative image
-// paths correctly no matter which site was scraped (Shopify, Amazon,
-// Daraz, ...). Never hardcode a domain here.
-//
-// Prefer an explicit field from the workflow if one is wired up, but don't
-// depend on it: fall back to the page's own <meta property="og:url"> or
-// <link rel="canonical">, which almost every real product page has, so
-// this works even if $json has no url/link field at this node.
-const ogUrlMatch =
-  html.match(
-    /<meta[^>]+property=["']og:url["'][^>]+content=["']([^"']+)["']/i,
-  ) ||
-  html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:url["']/i);
-const canonicalMatch = html.match(
-  /<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)["']/i,
-);
+/* -----------------------------
+   Product gallery region — cut the page off before any "related /
+   recommended products" widget, so their thumbnails never get scraped
+   as if they belonged to this product.
+----------------------------- */
+
+const STOP_MARKERS = [
+  "you might also like",
+  "you may also like",
+  "related products",
+  "recommended for you",
+  "customers also viewed",
+  "frequently bought together",
+  "similar products",
+];
+
+function galleryRegion(fullHtml) {
+  const lower = fullHtml.toLowerCase();
+  let cutoff = fullHtml.length;
+  for (const marker of STOP_MARKERS) {
+    const idx = lower.indexOf(marker);
+    if (idx !== -1 && idx < cutoff) cutoff = idx;
+  }
+  return fullHtml.slice(0, cutoff);
+}
+
+const galleryHtml = galleryRegion(html);
 
 /* -----------------------------
    Extract and normalize image URLs
 ----------------------------- */
 
+// Note: root-relative paths (e.g. "/cdn/img.jpg", no leading "//" or
+// "http") are intentionally dropped rather than resolved against a
+// guessed domain — resolving them wrong (as happened before) is worse
+// than skipping them, and real product pages almost always serve their
+// actual photos as absolute or protocol-relative URLs anyway.
 function normalizeUrl(url) {
   if (!url) return "";
 
@@ -181,10 +198,57 @@ function canonicalKey(url) {
   return url.split("?")[0].replace(/_(?:\d+x\d*|\d+x)(?=\.[a-z]+$)/i, "");
 }
 
+/* -----------------------------
+   Structured data — schema.org Product JSON-LD is the most reliable,
+   platform-agnostic source of the product's OWN images (Shopify,
+   WooCommerce, and most other storefronts emit this). Used first when
+   present; falls back to scraping <img> tags otherwise.
+----------------------------- */
+
+function jsonLdProductImages(fullHtml) {
+  const blocks =
+    fullHtml.match(
+      /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi,
+    ) || [];
+
+  for (const block of blocks) {
+    const bodyMatch = block.match(/>([\s\S]*?)<\/script>/i);
+    if (!bodyMatch) continue;
+
+    let data;
+    try {
+      data = JSON.parse(bodyMatch[1]);
+    } catch (e) {
+      continue;
+    }
+
+    const candidates = Array.isArray(data)
+      ? data
+      : [data, ...(Array.isArray(data["@graph"]) ? data["@graph"] : [])];
+
+    for (const item of candidates) {
+      const type = item && item["@type"];
+      const isProduct =
+        type === "Product" || (Array.isArray(type) && type.includes("Product"));
+      if (!isProduct || !item.image) continue;
+
+      if (typeof item.image === "string") return [item.image];
+      if (Array.isArray(item.image)) {
+        return item.image
+          .map((img) => (typeof img === "string" ? img : img && img.url))
+          .filter(Boolean);
+      }
+      if (item.image.url) return [item.image.url];
+    }
+  }
+
+  return [];
+}
+
 const images = [];
 
-// Get <img> tags
-const imgTags = html.match(/<img\b[^>]*>/gi) || [];
+// Get <img> tags (only within the product gallery region — see above)
+const imgTags = galleryHtml.match(/<img\b[^>]*>/gi) || [];
 
 for (const tag of imgTags) {
   const attributes = [
@@ -249,14 +313,25 @@ const filteredImages = [...new Set(images)].filter((url) => {
 // One entry per distinct photo — keep the first (usually largest/first
 // listed) URL seen for each canonical key.
 const seenKeys = new Set();
-const uniqueImages = [];
+const scrapedImages = [];
 for (const url of filteredImages) {
   const key = canonicalKey(url);
   if (!seenKeys.has(key)) {
     seenKeys.add(key);
-    uniqueImages.push(url);
+    scrapedImages.push(url);
   }
 }
+
+// Prefer structured data when the page provides it; it's already scoped
+// to this product, so no gallery-region/blacklist filtering is needed.
+const jsonLdImages = jsonLdProductImages(html)
+  .map(normalizeUrl)
+  .filter(Boolean);
+
+const uniqueImages = (jsonLdImages.length ? jsonLdImages : scrapedImages).slice(
+  0,
+  MAX_IMAGES,
+);
 
 /* -----------------------------
    Thumbnail — prefer og:image (Shopify sets this to the real product
