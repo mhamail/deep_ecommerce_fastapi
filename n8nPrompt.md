@@ -191,11 +191,58 @@ function normalizeUrl(url) {
   return "";
 }
 
-// Collapse CDN size/crop variants of the same photo (e.g. "?width=420"
-// vs "?width=800") down to one canonical URL, so "images" reflects
-// distinct product photos rather than the same photo repeated.
+// Collapse CDN size/crop variants of the same photo down to one
+// canonical key, so "images" reflects distinct product photos rather
+// than the same photo repeated at different resolutions.
 function canonicalKey(url) {
-  return url.split("?")[0].replace(/_(?:\d+x\d*|\d+x)(?=\.[a-z]+$)/i, "");
+  let key = url.split("?")[0];
+
+  // Shopify-style: "...product_800x.jpg" vs "...product_1024x.jpg"
+  key = key.replace(/_(?:\d+x\d*|\d+x)(?=\.[a-z]+$)/i, "");
+
+  // Amazon-style: "...I/51NXLo3Bc7L._AC_SY355_....jpg" vs
+  // "...I/51NXLo3Bc7L._AC_SY450_....jpg" — same image id, different
+  // size/style descriptor between the id and the extension. Amazon ids
+  // can contain "+" and "-" (e.g. "71Ow+CjPL8L"), not just alnum.
+  key = key.replace(/\/([A-Za-z0-9+-]{6,15})\.[^/.]+\.([a-z]+)$/i, "/$1.$2");
+
+  return key;
+}
+
+/* -----------------------------
+   Known non-product images — detected structurally (favicon links, and
+   <img> tags whose class/id/alt semantically say "logo"), never by
+   filename. A site's own AI-generated product photos can be named
+   anything, including something that looks like a "logo" filename on
+   some other store, so filename guessing is unsafe here; markup
+   semantics ("this <img> IS the header logo") are what's actually
+   universal across sites.
+----------------------------- */
+
+function knownNonProductKeys(fullHtml) {
+  const keys = new Set();
+
+  const iconMatches =
+    fullHtml.match(
+      /<link[^>]+rel=["'](?:shortcut )?icon["'][^>]+href=["']([^"']+)["']/gi,
+    ) || [];
+  for (const tag of iconMatches) {
+    const hrefMatch = tag.match(/href=["']([^"']+)["']/i);
+    const url = hrefMatch && normalizeUrl(hrefMatch[1]);
+    if (url) keys.add(canonicalKey(url));
+  }
+
+  const imgTags = fullHtml.match(/<img\b[^>]*>/gi) || [];
+  for (const tag of imgTags) {
+    const isLogo = /(?:class|id|alt)\s*=\s*["'][^"']*logo[^"']*["']/i.test(tag);
+    if (!isLogo) continue;
+
+    const srcMatch = tag.match(/(?:src|data-src)\s*=\s*["']([^"']+)["']/i);
+    const url = srcMatch && normalizeUrl(srcMatch[1]);
+    if (url) keys.add(canonicalKey(url));
+  }
+
+  return keys;
 }
 
 /* -----------------------------
@@ -245,49 +292,118 @@ function jsonLdProductImages(fullHtml) {
   return [];
 }
 
-const images = [];
+/* -----------------------------
+   Amazon's own gallery markup — the real full-size photos live in a
+   data-a-dynamic-image="{...}" JSON attribute (url -> [w,h]) on each
+   gallery <img>, not in a plain src/data-src attribute. Purely additive:
+   only ever finds something on pages that actually have this attribute.
+----------------------------- */
 
-// Get <img> tags (only within the product gallery region — see above)
-const imgTags = galleryHtml.match(/<img\b[^>]*>/gi) || [];
+function amazonDynamicImages(regionHtml) {
+  const attrMatches =
+    regionHtml.match(/data-a-dynamic-image=(["'])(\{.*?\})\1/gi) || [];
 
-for (const tag of imgTags) {
-  const attributes = [
-    "src",
-    "data-src",
-    "data-original",
-    "data-image",
-    "data-image-url",
-  ];
+  const urls = [];
+  for (const attrMatch of attrMatches) {
+    const valueMatch = attrMatch.match(/data-a-dynamic-image=(["'])(\{.*?\})\1/i);
+    if (!valueMatch) continue;
 
-  for (const attr of attributes) {
-    const regex = new RegExp(`${attr}\\s*=\\s*["']([^"']+)["']`, "i");
+    const jsonText = valueMatch[2].replace(/&quot;/gi, '"').replace(/&amp;/gi, "&");
 
-    const match = tag.match(regex);
-
-    if (match && match[1]) {
-      const url = normalizeUrl(match[1]);
-
-      if (url) {
-        images.push(url);
-      }
+    try {
+      const parsed = JSON.parse(jsonText);
+      urls.push(...Object.keys(parsed));
+    } catch (e) {
+      // not valid JSON for this attribute — skip it
     }
   }
+  return urls;
+}
 
-  // Handle srcset
-  const srcsetMatch = tag.match(
-    /(?:srcset|data-srcset)\s*=\s*["']([^"']+)["']/i,
+// Amazon's best source: the page embeds one JS object PER DISTINCT PHOTO
+// under `'colorImages': { 'initial': A.$.parseJSON('[ {...}, {...} ]') }`,
+// each with a single canonical "hiRes" URL. Unlike scraping every
+// data-a-dynamic-image size-variant map, this is already deduplicated by
+// Amazon itself — one entry per photo, not per resolution.
+function amazonColorImages(fullHtml) {
+  const wrapperMatch = fullHtml.match(
+    /'colorImages'\s*:\s*\{\s*'initial'\s*:\s*A\.\$\.parseJSON\('(.+?)'\)/,
   );
+  if (!wrapperMatch) return [];
 
-  if (srcsetMatch) {
-    const srcsetUrls = srcsetMatch[1]
-      .split(",")
-      .map((item) => item.trim().split(/\s+/)[0]);
+  const jsonText = wrapperMatch[1].replace(/\\"/g, '"').replace(/\\\\/g, "\\");
 
-    for (const src of srcsetUrls) {
-      const url = normalizeUrl(src);
+  let parsed;
+  try {
+    parsed = JSON.parse(jsonText);
+  } catch (e) {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
 
-      if (url) {
-        images.push(url);
+  return parsed
+    .map(
+      (item) =>
+        item &&
+        (item.hiRes || item.large || (item.main && Object.keys(item.main)[0])),
+    )
+    .filter(Boolean);
+}
+
+const amazonImages = amazonColorImages(html);
+
+const images = amazonImages.length
+  ? amazonImages
+  : amazonDynamicImages(galleryHtml);
+
+// Only fall back to generic <img>-tag scraping when neither Amazon
+// source found anything — otherwise thumbnail-rail/alt-size <img>s (with
+// their own distinct ids) would sneak in as noise alongside the already-
+// clean, already-deduplicated Amazon result above.
+if (!images.length) {
+  // Get <img> tags (only within the product gallery region — see above)
+  const imgTags = galleryHtml.match(/<img\b[^>]*>/gi) || [];
+
+  for (const tag of imgTags) {
+    const attributes = [
+      "src",
+      "data-src",
+      "data-original",
+      "data-image",
+      "data-image-url",
+      "data-old-hires",
+    ];
+
+    for (const attr of attributes) {
+      const regex = new RegExp(`${attr}\\s*=\\s*["']([^"']+)["']`, "i");
+
+      const match = tag.match(regex);
+
+      if (match && match[1]) {
+        const url = normalizeUrl(match[1]);
+
+        if (url) {
+          images.push(url);
+        }
+      }
+    }
+
+    // Handle srcset
+    const srcsetMatch = tag.match(
+      /(?:srcset|data-srcset)\s*=\s*["']([^"']+)["']/i,
+    );
+
+    if (srcsetMatch) {
+      const srcsetUrls = srcsetMatch[1]
+        .split(",")
+        .map((item) => item.trim().split(/\s+/)[0]);
+
+      for (const src of srcsetUrls) {
+        const url = normalizeUrl(src);
+
+        if (url) {
+          images.push(url);
+        }
       }
     }
   }
@@ -297,14 +413,21 @@ for (const tag of imgTags) {
    Clean image list
 ----------------------------- */
 
+const nonProductKeys = knownNonProductKeys(html);
+
 const filteredImages = [...new Set(images)].filter((url) => {
   const lower = url.toLowerCase();
 
-  // Ignore obvious non-product images
+  // Ignore obvious non-product images (filename-based — a coarse,
+  // best-effort net; knownNonProductKeys above is the reliable,
+  // structural check for logos that don't say so in the filename).
+  // "icon" is deliberately not checked here — too many legitimate
+  // product names contain it (e.g. "icon-shaped lamp").
   if (lower.includes("placeholder")) return false;
   if (lower.includes("logo")) return false;
-  if (lower.includes("icon")) return false;
   if (lower.includes("favicon")) return false;
+
+  if (nonProductKeys.has(canonicalKey(url))) return false;
 
   // Only images
   return /\.(jpg|jpeg|png|webp|gif|avif)(\?|$)/i.test(url);
@@ -349,7 +472,21 @@ const ogImageMatch =
 
 const ogImage = ogImageMatch ? normalizeUrl(ogImageMatch[1]) : "";
 
-const thumbnail = ogImage || uniqueImages[0] || "";
+// Shopify's Web Pixels Manager init payload embeds the CURRENT page's own
+// product/variant under "productVariants" — unlike the neighboring
+// "products" array (other catalog items, for cross-sell tracking, never
+// safe to use here), this is scoped to just this page. Used only when
+// og:image is missing, as a safety net, not a replacement for it.
+function shopifyPixelThumbnail(fullHtml) {
+  const match = fullHtml.match(
+    /"productVariants"\s*:\s*\[\s*\{[\s\S]{0,400}?"image"\s*:\s*\{\s*"src"\s*:\s*"([^"]+)"/,
+  );
+  if (!match) return "";
+  return match[1].replace(/\\\//g, "/");
+}
+
+const thumbnail =
+  ogImage || normalizeUrl(shopifyPixelThumbnail(html)) || uniqueImages[0] || "";
 
 /* -----------------------------
    Clean webpage text
