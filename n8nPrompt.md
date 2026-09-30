@@ -352,9 +352,35 @@ function amazonColorImages(fullHtml) {
 
 const amazonImages = amazonColorImages(html);
 
+/* -----------------------------
+   AliExpress embeds a clean per-product "imagePathList" array (full-
+   resolution URLs) in an inline script. A neighboring "summImagePathList"
+   holds 80x80 thumbnail-rail crops of the SAME photos — deliberately
+   never read here, so those small crops can't end up in the results.
+   The negative lookbehind stops "imagePathList" from also matching as
+   a substring of "summImagePathList".
+----------------------------- */
+
+function aliExpressImages(fullHtml) {
+  const match = fullHtml.match(/(?<!summ)"imagePathList"\s*:\s*(\[[^\]]*\])/i);
+  if (!match) return [];
+
+  try {
+    const parsed = JSON.parse(match[1]);
+    if (Array.isArray(parsed)) return parsed.filter((u) => typeof u === "string");
+  } catch (e) {
+    // not valid JSON — skip it
+  }
+  return [];
+}
+
+const aliExpressImgs = aliExpressImages(html);
+
 const images = amazonImages.length
   ? amazonImages
-  : amazonDynamicImages(galleryHtml);
+  : aliExpressImgs.length
+    ? aliExpressImgs
+    : amazonDynamicImages(galleryHtml);
 
 // Only fall back to generic <img>-tag scraping when neither Amazon
 // source found anything — otherwise thumbnail-rail/alt-size <img>s (with
