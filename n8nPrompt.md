@@ -1,5 +1,27 @@
 n8n port: http://localhost:5678/
 
+# architecture
+
+==>webhook->HTTP Request->Code in JavaScript->Basic LLM Chain->Respond to Webhook
+==>Basic LLM Chain<->Structured Output Parser
+==>Basic LLM Chain<->Anthropic Chat Model
+
+# architecture (no-AI, structured-data only)
+
+==>webhook->HTTP Request->IF ({{$node["Webhook"].json.body.prompt}} present?)
+==>IF true (prompt given) ->Code in JavaScript->Basic LLM Chain->Respond to Webhook
+==>IF false (URL only, no prompt)->Code in JavaScript (No-AI Arrange)->Respond to Webhook
+
+The branch is decided by whether the admin sent a "prompt" at all, not by
+how complete the scraped data turns out to be — a bulk URL-only import
+(no prompt) always goes the no-AI route; sending a prompt (custom
+instructions, a price override, "make the description punchier", etc.)
+always means the admin wants AI involved, so it goes through the existing
+Basic LLM Chain branch instead. If a URL-only page turns out to have poor
+structured data, the no-AI branch will just ship a sparser product record
+(e.g. missing price) rather than silently falling back to AI — that
+tradeoff is intentional per this instruction, not an oversight.
+
 # User Message
 
 ```sh
@@ -305,10 +327,14 @@ function amazonDynamicImages(regionHtml) {
 
   const urls = [];
   for (const attrMatch of attrMatches) {
-    const valueMatch = attrMatch.match(/data-a-dynamic-image=(["'])(\{.*?\})\1/i);
+    const valueMatch = attrMatch.match(
+      /data-a-dynamic-image=(["'])(\{.*?\})\1/i,
+    );
     if (!valueMatch) continue;
 
-    const jsonText = valueMatch[2].replace(/&quot;/gi, '"').replace(/&amp;/gi, "&");
+    const jsonText = valueMatch[2]
+      .replace(/&quot;/gi, '"')
+      .replace(/&amp;/gi, "&");
 
     try {
       const parsed = JSON.parse(jsonText);
@@ -367,7 +393,8 @@ function aliExpressImages(fullHtml) {
 
   try {
     const parsed = JSON.parse(match[1]);
-    if (Array.isArray(parsed)) return parsed.filter((u) => typeof u === "string");
+    if (Array.isArray(parsed))
+      return parsed.filter((u) => typeof u === "string");
   } catch (e) {
     // not valid JSON — skip it
   }
@@ -587,4 +614,561 @@ return {
     }
   ]
 }
+```
+
+##########################################################################
+
+# Code In JavaScript (No-AI Arrange)
+
+##########################################################################
+
+Standalone node — wire it directly after HTTP Request, in parallel with
+the existing "Code In Javascript" node. It duplicates the image/thumbnail
+extraction logic from that node (n8n Code nodes can't share code across
+nodes) and adds structured name/description/price extraction on top, so
+it can emit the FINAL product record directly — same shape as the
+Structured Output Parser schema above.
+
+```js
+const html = $json.data || "";
+const MAX_IMAGES = 8;
+
+const STOP_MARKERS = [
+  "you might also like",
+  "you may also like",
+  "related products",
+  "recommended for you",
+  "customers also viewed",
+  "frequently bought together",
+  "similar products",
+];
+
+function galleryRegion(fullHtml) {
+  const lower = fullHtml.toLowerCase();
+  let cutoff = fullHtml.length;
+  for (const marker of STOP_MARKERS) {
+    const idx = lower.indexOf(marker);
+    if (idx !== -1 && idx < cutoff) cutoff = idx;
+  }
+  return fullHtml.slice(0, cutoff);
+}
+
+const galleryHtml = galleryRegion(html);
+
+function normalizeUrl(url) {
+  if (!url) return "";
+  url = url
+    .trim()
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"');
+  if (url.startsWith("data:")) return "";
+  if (url.startsWith("//")) return "https:" + url;
+  if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  return "";
+}
+
+function canonicalKey(url) {
+  let key = url.split("?")[0];
+  key = key.replace(/_(?:\d+x\d*|\d+x)(?=\.[a-z]+$)/i, "");
+  key = key.replace(/\/([A-Za-z0-9+-]{6,15})\.[^/.]+\.([a-z]+)$/i, "/$1.$2");
+  return key;
+}
+
+function knownNonProductKeys(fullHtml) {
+  const keys = new Set();
+  const iconMatches =
+    fullHtml.match(
+      /<link[^>]+rel=["'](?:shortcut )?icon["'][^>]+href=["']([^"']+)["']/gi,
+    ) || [];
+  for (const tag of iconMatches) {
+    const hrefMatch = tag.match(/href=["']([^"']+)["']/i);
+    const url = hrefMatch && normalizeUrl(hrefMatch[1]);
+    if (url) keys.add(canonicalKey(url));
+  }
+  const imgTags = fullHtml.match(/<img\b[^>]*>/gi) || [];
+  for (const tag of imgTags) {
+    const isLogo = /(?:class|id|alt)\s*=\s*["'][^"']*logo[^"']*["']/i.test(tag);
+    if (!isLogo) continue;
+    const srcMatch = tag.match(/(?:src|data-src)\s*=\s*["']([^"']+)["']/i);
+    const url = srcMatch && normalizeUrl(srcMatch[1]);
+    if (url) keys.add(canonicalKey(url));
+  }
+  return keys;
+}
+
+/* -----------------------------
+   Full schema.org Product object — not just its images. This is the
+   backbone of the no-AI path: when present, it usually carries name,
+   description, sku and price directly.
+----------------------------- */
+
+function jsonLdProduct(fullHtml) {
+  const blocks =
+    fullHtml.match(
+      /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi,
+    ) || [];
+  for (const block of blocks) {
+    const bodyMatch = block.match(/>([\s\S]*?)<\/script>/i);
+    if (!bodyMatch) continue;
+    let data;
+    try {
+      data = JSON.parse(bodyMatch[1]);
+    } catch (e) {
+      continue;
+    }
+    const candidates = Array.isArray(data)
+      ? data
+      : [data, ...(Array.isArray(data["@graph"]) ? data["@graph"] : [])];
+    for (const item of candidates) {
+      const type = item && item["@type"];
+      const isProduct =
+        type === "Product" || (Array.isArray(type) && type.includes("Product"));
+      if (isProduct) return item;
+    }
+  }
+  return null;
+}
+
+function jsonLdProductImages(product) {
+  if (!product || !product.image) return [];
+  if (typeof product.image === "string") return [product.image];
+  if (Array.isArray(product.image)) {
+    return product.image
+      .map((img) => (typeof img === "string" ? img : img && img.url))
+      .filter(Boolean);
+  }
+  if (product.image.url) return [product.image.url];
+  return [];
+}
+
+function jsonLdOffer(product) {
+  if (!product || !product.offers) return null;
+  return Array.isArray(product.offers) ? product.offers[0] : product.offers;
+}
+
+function amazonDynamicImages(regionHtml) {
+  const attrMatches =
+    regionHtml.match(/data-a-dynamic-image=(["'])(\{.*?\})\1/gi) || [];
+  const urls = [];
+  for (const attrMatch of attrMatches) {
+    const valueMatch = attrMatch.match(
+      /data-a-dynamic-image=(["'])(\{.*?\})\1/i,
+    );
+    if (!valueMatch) continue;
+    const jsonText = valueMatch[2]
+      .replace(/&quot;/gi, '"')
+      .replace(/&amp;/gi, "&");
+    try {
+      const parsed = JSON.parse(jsonText);
+      urls.push(...Object.keys(parsed));
+    } catch (e) {
+      // not valid JSON for this attribute — skip it
+    }
+  }
+  return urls;
+}
+
+function amazonColorImages(fullHtml) {
+  const wrapperMatch = fullHtml.match(
+    /'colorImages'\s*:\s*\{\s*'initial'\s*:\s*A\.\$\.parseJSON\('(.+?)'\)/,
+  );
+  if (!wrapperMatch) return [];
+  const jsonText = wrapperMatch[1].replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+  let parsed;
+  try {
+    parsed = JSON.parse(jsonText);
+  } catch (e) {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  return parsed
+    .map(
+      (item) =>
+        item &&
+        (item.hiRes || item.large || (item.main && Object.keys(item.main)[0])),
+    )
+    .filter(Boolean);
+}
+
+function aliExpressImages(fullHtml) {
+  const match = fullHtml.match(/(?<!summ)"imagePathList"\s*:\s*(\[[^\]]*\])/i);
+  if (!match) return [];
+  try {
+    const parsed = JSON.parse(match[1]);
+    if (Array.isArray(parsed))
+      return parsed.filter((u) => typeof u === "string");
+  } catch (e) {
+    // not valid JSON — skip it
+  }
+  return [];
+}
+
+function metaProp(fullHtml, prop) {
+  const m =
+    fullHtml.match(
+      new RegExp(
+        `<meta[^>]+property=["']${prop}["'][^>]+content=["']([^"']+)["']`,
+        "i",
+      ),
+    ) ||
+    fullHtml.match(
+      new RegExp(
+        `<meta[^>]+content=["']([^"']+)["'][^>]+property=["']${prop}["']`,
+        "i",
+      ),
+    );
+  return m ? m[1] : "";
+}
+
+function metaNameAttr(fullHtml, name) {
+  const m =
+    fullHtml.match(
+      new RegExp(
+        `<meta[^>]+name=["']${name}["'][^>]+content=["']([^"']+)["']`,
+        "i",
+      ),
+    ) ||
+    fullHtml.match(
+      new RegExp(
+        `<meta[^>]+content=["']([^"']+)["'][^>]+name=["']${name}["']`,
+        "i",
+      ),
+    );
+  return m ? m[1] : "";
+}
+
+function decodeEntities(s) {
+  return (s || "")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .trim();
+}
+
+/* -----------------------------
+   On-page description blocks — meta og:description/meta description are
+   only the short SEO snippet (~1-2 sentences), never the real product
+   description body shoppers actually see on the page. Themes vary their
+   own class-naming per store (e.g. "sm-product__rte"), so exact class
+   names aren't portable — but the *substring* "rte" is Shopify's own
+   long-standing convention for a rich-text-editor content block, and
+   "short-intro"/"short_description" is a common naming pattern for a
+   short summary block, so those substrings generalize reasonably well
+   across different Shopify themes without hardcoding any one theme's
+   private class prefix.
+----------------------------- */
+
+function extractByClassSubstring(fullHtml, substrings) {
+  const openTag = /<(div|section|article|span)\b([^>]*)>/gi;
+  let match;
+  while ((match = openTag.exec(fullHtml))) {
+    const tagName = match[1].toLowerCase();
+    const classMatch = match[2].match(/class\s*=\s*["']([^"']*)["']/i);
+    if (!classMatch) continue;
+
+    const cls = classMatch[1].toLowerCase();
+    if (!substrings.some((s) => cls.includes(s))) continue;
+
+    // Balance same-tag-name open/close from here to find the real end —
+    // a naive non-greedy regex would stop at the first nested closing
+    // tag instead of the actual end (same class of bug as brace-matching
+    // JSON above).
+    const combined = new RegExp(`<${tagName}\\b[^>]*>|</${tagName}\\s*>`, "gi");
+    combined.lastIndex = openTag.lastIndex;
+    let depth = 1;
+    let end = -1;
+    let m;
+    while ((m = combined.exec(fullHtml))) {
+      if (m[0].startsWith("</")) {
+        depth--;
+        if (depth === 0) {
+          end = m.index;
+          break;
+        }
+      } else {
+        depth++;
+      }
+    }
+    if (end === -1) continue;
+    return fullHtml.slice(openTag.lastIndex, end);
+  }
+  return "";
+}
+
+// Whitelist rich-text tags, strip everything else (scripts, styles, event
+// handler attributes, and any theme-specific wrapper tags/classes) down
+// to plain text where a tag isn't on the allowed list.
+function sanitizeRichHtml(rawHtml) {
+  if (!rawHtml) return "";
+  return rawHtml
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/\s(on[a-z]+)\s*=\s*("[^"]*"|'[^']*')/gi, "")
+    .replace(/<(?!\/?(h2|h3|h4|p|ul|ol|li|strong|em|b|i|br)\b)[^>]*>/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function ensureBlockHtml(htmlText) {
+  if (!htmlText) return "";
+  return /^\s*<(h[1-6]|p|ul|ol)\b/i.test(htmlText)
+    ? htmlText
+    : `<p>${htmlText}</p>`;
+}
+
+/* -----------------------------
+   Shopify pixel data — same as the AI-branch node: current page's own
+   product/variant, price included, never the "products" cross-sell list.
+----------------------------- */
+
+function shopifyPixelVariant(fullHtml) {
+  const markerMatch = fullHtml.match(/"productVariants"\s*:\s*\[\s*\{/);
+  if (!markerMatch) return null;
+
+  // Nested objects (price, product, image) mean a naive non-greedy
+  // "{...}" regex stops at the FIRST closing brace it meets (inside one
+  // of those nested objects), not the real end — so the object bounds
+  // are found by manually counting brace depth instead.
+  const start = markerMatch.index + markerMatch[0].length - 1;
+  let depth = 0;
+  let end = -1;
+  for (let i = start; i < fullHtml.length; i++) {
+    if (fullHtml[i] === "{") depth++;
+    else if (fullHtml[i] === "}") {
+      depth--;
+      if (depth === 0) {
+        end = i;
+        break;
+      }
+    }
+  }
+  if (end === -1) return null;
+
+  try {
+    return JSON.parse(fullHtml.slice(start, end + 1));
+  } catch (e) {
+    return null;
+  }
+}
+
+/* -----------------------------
+   Images (identical priority chain to the AI-branch node)
+----------------------------- */
+
+const ldProduct = jsonLdProduct(html);
+const amazonImages = amazonColorImages(html);
+const aliExpressImgs = aliExpressImages(html);
+
+const images = amazonImages.length
+  ? amazonImages
+  : aliExpressImgs.length
+    ? aliExpressImgs
+    : amazonDynamicImages(galleryHtml);
+
+if (!images.length) {
+  const imgTags = galleryHtml.match(/<img\b[^>]*>/gi) || [];
+  for (const tag of imgTags) {
+    const attributes = [
+      "src",
+      "data-src",
+      "data-original",
+      "data-image",
+      "data-image-url",
+      "data-old-hires",
+    ];
+    for (const attr of attributes) {
+      const regex = new RegExp(`${attr}\\s*=\\s*["']([^"']+)["']`, "i");
+      const match = tag.match(regex);
+      if (match && match[1]) {
+        const url = normalizeUrl(match[1]);
+        if (url) images.push(url);
+      }
+    }
+    const srcsetMatch = tag.match(
+      /(?:srcset|data-srcset)\s*=\s*["']([^"']+)["']/i,
+    );
+    if (srcsetMatch) {
+      const srcsetUrls = srcsetMatch[1]
+        .split(",")
+        .map((item) => item.trim().split(/\s+/)[0]);
+      for (const src of srcsetUrls) {
+        const url = normalizeUrl(src);
+        if (url) images.push(url);
+      }
+    }
+  }
+}
+
+const nonProductKeys = knownNonProductKeys(html);
+
+const filteredImages = [...new Set(images)].filter((url) => {
+  const lower = url.toLowerCase();
+  if (lower.includes("placeholder")) return false;
+  if (lower.includes("logo")) return false;
+  if (lower.includes("favicon")) return false;
+  if (nonProductKeys.has(canonicalKey(url))) return false;
+  return /\.(jpg|jpeg|png|webp|gif|avif)(\?|$)/i.test(url);
+});
+
+const seenKeys = new Set();
+const scrapedImages = [];
+for (const url of filteredImages) {
+  const key = canonicalKey(url);
+  if (!seenKeys.has(key)) {
+    seenKeys.add(key);
+    scrapedImages.push(url);
+  }
+}
+
+const ldImages = jsonLdProductImages(ldProduct)
+  .map(normalizeUrl)
+  .filter(Boolean);
+const uniqueImages = (ldImages.length ? ldImages : scrapedImages).slice(
+  0,
+  MAX_IMAGES,
+);
+
+const ogImageMatch =
+  html.match(
+    /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i,
+  ) ||
+  html.match(
+    /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i,
+  );
+const ogImage = ogImageMatch ? normalizeUrl(ogImageMatch[1]) : "";
+
+const shopifyVariant = shopifyPixelVariant(html);
+const shopifyThumb =
+  shopifyVariant && shopifyVariant.image && shopifyVariant.image.src
+    ? shopifyVariant.image.src.replace(/\\\//g, "/")
+    : "";
+
+const thumbnail =
+  ogImage || normalizeUrl(shopifyThumb) || uniqueImages[0] || "";
+
+/* -----------------------------
+   Name / description — structured data first, meta tags as fallback.
+----------------------------- */
+
+const name = decodeEntities(
+  (ldProduct && ldProduct.name) ||
+    metaProp(html, "og:title") ||
+    (html.match(/<title>([^<]*)<\/title>/i) || [])[1] ||
+    "",
+);
+
+const onPageDescription = sanitizeRichHtml(
+  extractByClassSubstring(html, ["rte"]),
+);
+const onPageShortIntro = sanitizeRichHtml(
+  extractByClassSubstring(html, [
+    "short-intro",
+    "short_description",
+    "short-description",
+  ]),
+);
+
+const metaDescriptionText = decodeEntities(
+  metaProp(html, "og:description") || metaNameAttr(html, "description") || "",
+);
+
+const description =
+  ldProduct && ldProduct.description
+    ? `<p>${decodeEntities(ldProduct.description)}</p>`
+    : onPageDescription
+      ? ensureBlockHtml(onPageDescription)
+      : metaDescriptionText
+        ? `<p>${metaDescriptionText}</p>`
+        : "";
+
+const shortDescription = onPageShortIntro
+  ? ensureBlockHtml(onPageShortIntro)
+  : metaDescriptionText
+    ? `<p>${metaDescriptionText.slice(0, 200)}</p>`
+    : "";
+
+/* -----------------------------
+   Price — JSON-LD offers first, Shopify pixel price as fallback.
+----------------------------- */
+
+const ldOffer = jsonLdOffer(ldProduct);
+
+let price = null;
+let discount_price = null;
+
+if (ldOffer) {
+  const single = parseFloat(ldOffer.price);
+  const high = parseFloat(ldOffer.highPrice);
+  const low = parseFloat(ldOffer.lowPrice);
+  if (!isNaN(high) && !isNaN(low) && high !== low) {
+    price = high;
+    discount_price = low;
+  } else if (!isNaN(single)) {
+    price = single;
+  }
+}
+
+if (price === null && shopifyVariant && shopifyVariant.price) {
+  const amount = parseFloat(shopifyVariant.price.amount);
+  if (!isNaN(amount)) price = amount;
+}
+
+let inStock = true;
+if (ldOffer && typeof ldOffer.availability === "string") {
+  inStock = /instock/i.test(ldOffer.availability);
+}
+
+const sku = (ldProduct && (ldProduct.sku || ldProduct.mpn)) || "";
+
+return {
+  json: {
+    name,
+    short_description: shortDescription,
+    description,
+    thumbnail,
+    images: uniqueImages.filter((url) => url !== thumbnail),
+    tags: [],
+    meta_title: metaProp(html, "og:title") || name,
+    meta_description:
+      metaProp(html, "og:description") || metaNameAttr(html, "description"),
+    total_stock: inStock ? 50 : 0,
+    video_url: null,
+    whats_in_box: "",
+    variants: [
+      {
+        sku,
+        price,
+        discount_price,
+        stock: inStock ? 50 : 0,
+        weight: null,
+        position: 1,
+        image: null,
+      },
+    ],
+  },
+};
+```
+
+IF node condition — placed right after HTTP Request, before either Code
+node runs, deciding which branch handles this request:
+
+```
+{{ $node["Webhook"].json.body.prompt && $node["Webhook"].json.body.prompt.trim().length > 0 }}
+```
+
+True (prompt present) -> AI branch (Code in JavaScript -> Basic LLM Chain).
+False (URL only) -> Code in JavaScript (No-AI Arrange) -> Respond to Webhook.
+
+####################################################
+
+# Docker n8n setup in ubuntu server
+
+####################################################
+
+```sh
+cd /opt/n8n
+docker compose pull # first time
+docker compose up -d  #whenever changing something
 ```
