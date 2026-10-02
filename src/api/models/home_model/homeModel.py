@@ -1,3 +1,4 @@
+import re
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
@@ -10,6 +11,19 @@ from starlette.datastructures import UploadFile as StarletteUploadFile
 from src.api.models.baseModel import TimeStampedModel, TimeStampReadModel
 from src.api.models.mediaModel import MediaRead
 from src.api.models.utils import to_bool, to_int
+
+
+# The only background shapes accepted (what the admin's GradientPicker
+# emits). Strict on purpose: the value is rendered into an inline style on
+# the storefront, so anything free-form (url(), expression, `;`) is rejected.
+_HEX = r"#[0-9a-fA-F]{6}"
+_BACKGROUND_RE = re.compile(
+    rf"^(?:{_HEX}|linear-gradient\((?:[0-9]|[1-9][0-9]|[1-3][0-9]{{2}})deg, {_HEX} \d{{1,3}}%, {_HEX} \d{{1,3}}%\))$"
+)
+
+
+def validate_background(value: Optional[str]) -> bool:
+    return value is None or _BACKGROUND_RE.fullmatch(value) is not None
 
 
 class HomeSectionType(str, Enum):
@@ -85,13 +99,19 @@ class Banner(TimeStampedModel, table=True):
     section_id: int = Field(foreign_key="home_sections.id", index=True)
 
     # Stored media dict ({id, filename, original, media_type}), same shape
-    # as Category.image.
+    # as Category.image. Optional — a banner may be text-only, but it needs
+    # an image or text (enforced in the routes).
     image: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON))
 
     # Alt text / admin label.
     title: Optional[str] = Field(default=None, max_length=191)
     # Rich text (HTML from the admin's RichTextEditor), laid over the image.
     content: Optional[str] = Field(default=None)
+
+    # Background behind the image / text-only card: a solid `#rrggbb` or a
+    # two-stop `linear-gradient(...)` string (shape enforced by
+    # validate_background). None → the storefront uses its theme `bg-card`.
+    background: Optional[str] = Field(default=None, max_length=200)
 
     # Click action. Internal paths ("/product/12") or absolute URLs.
     link_url: Optional[str] = Field(default=None, max_length=500)
@@ -112,13 +132,11 @@ class BannerRead(SQLModel):
     image: Optional[MediaRead] = None
     title: Optional[str] = None
     content: Optional[str] = None
+    background: Optional[str] = None
     link_url: Optional[str] = None
     open_in_new_tab: bool = False
     position: int = 0
     is_active: bool = True
-
-    class Config:
-        from_attributes = True
 
 
 class HomeSectionRead(SQLModel):
@@ -183,24 +201,31 @@ class HomeSectionUpdate(BaseModel):
 # ==========================
 class BannerForm:
     """Multipart/Form payload. On update, text fields distinguish omitted
-    (None → untouched) from empty string (→ cleared)."""
+    (None → untouched) from whitespace-only (→ cleared; an empty string is
+    dropped by FastAPI before it gets here)."""
 
     def __init__(
         self,
         section_id: Optional[int] = Form(None),
         title: Optional[str] = Form(None),
         content: Optional[str] = Form(None),
+        background: Optional[str] = Form(None),
         link_url: Optional[str] = Form(None),
         open_in_new_tab: Optional[bool] = Form(None),
         is_active: Optional[bool] = Form(None),
         image: Optional[Union[UploadFile, str]] = File(None),
+        remove_image: Optional[bool] = Form(None),
     ):
         self.section_id = to_int(section_id)
         self.title = title
         self.content = content
+        # None = omitted; whitespace-only = clear (see update route).
+        self.background = background.strip() if isinstance(background, str) else None
         self.link_url = link_url.strip() if isinstance(link_url, str) else None
         self.open_in_new_tab = to_bool(open_in_new_tab)
         self.is_active = to_bool(is_active)
+        # Update only: drop the current image (a text-only banner).
+        self.remove_image = to_bool(remove_image)
         # Only a real upload counts; "" / a string means "keep the image".
         # (isinstance against Starlette's class: that's what the multipart
         # parser actually produces — fastapi.UploadFile is only a subclass

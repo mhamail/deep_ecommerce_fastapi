@@ -14,6 +14,7 @@ from src.api.models.home_model.homeModel import (
     HomeSection,
     HomeSectionType,
     ReorderRequest,
+    validate_background,
 )
 
 router = APIRouter(prefix="/banner", tags=["Banner"])
@@ -33,6 +34,13 @@ def _check_link(link: str | None):
     api_response(400, "Link must start with '/' or http(s)://")
 
 
+def _check_background(value: str | None):
+    if not validate_background(value or None):
+        api_response(
+            400, "Background must be a #rrggbb colour or a two-colour linear-gradient"
+        )
+
+
 @router.post("/create")
 async def create_banner(
     session: GetSession,
@@ -41,16 +49,23 @@ async def create_banner(
 ):
     raiseExceptions(
         (request.section_id, 400, "section_id is required"),
-        (request.image, 400, "A banner needs an image"),
     )
     section = session.get(HomeSection, request.section_id)
     raiseExceptions((section, 404, "Section not found"))
     if HomeSectionType(section.type) not in BANNER_SECTION_TYPES:
         api_response(400, "This section type does not hold banners")
     _check_link(request.link_url)
+    _check_background(request.background)
+    # Image is optional (a text-only banner is fine) — but not all empty.
+    if request.image is None and not (
+        (request.content or "").strip() or (request.title or "").strip()
+    ):
+        api_response(400, "A banner needs an image or some text")
 
-    image = await uploadSingleMedia(request.image, session)
-    raiseExceptions((image, 400, "Image upload failed"))
+    image = None
+    if request.image is not None:
+        image = await uploadSingleMedia(request.image, session)
+        raiseExceptions((image, 400, "Image upload failed"))
 
     last = session.exec(
         select(func.max(Banner.position)).where(Banner.section_id == section.id)
@@ -58,8 +73,9 @@ async def create_banner(
     banner = Banner(
         section_id=section.id,
         image=image,
-        title=request.title or None,
-        content=request.content or None,
+        title=(request.title or "").strip() or None,
+        content=(request.content or "").strip() or None,
+        background=request.background or None,
         link_url=request.link_url or None,
         open_in_new_tab=bool(request.open_in_new_tab),
         is_active=True if request.is_active is None else request.is_active,
@@ -82,18 +98,40 @@ async def update_banner(
     banner = session.get(Banner, id)
     raiseExceptions((banner, 404, "Banner not found"))
     _check_link(request.link_url)
+    _check_background(request.background)
 
-    if request.image:
+    # Validate the end state BEFORE touching any media — a deleted file
+    # can't be rolled back.
+    keeps_image = request.image is not None or (
+        banner.image is not None and not request.remove_image
+    )
+    final_content = (
+        request.content.strip() if request.content is not None else banner.content
+    )
+    final_title = (
+        request.title.strip() if request.title is not None else banner.title
+    )
+    if not (keeps_image or final_content or final_title):
+        api_response(400, "A banner needs an image or some text")
+
+    if request.image is not None:
         new_image = await uploadSingleMedia(request.image, session)
         raiseExceptions((new_image, 400, "Image upload failed"))
         await deleteMediaFiles(session, banner.image)  # replaced → free the old file
         banner.image = new_image
+    elif request.remove_image and banner.image:
+        await deleteMediaFiles(session, banner.image)
+        banner.image = None
 
-    # None = omitted (leave alone), "" = cleared.
+    # None = omitted (leave alone); whitespace-only = cleared. (A truly empty
+    # form value never arrives — FastAPI treats "" as omitted — so clients
+    # send " " to clear.)
     if request.title is not None:
         banner.title = request.title.strip() or None
     if request.content is not None:
         banner.content = request.content.strip() or None
+    if request.background is not None:
+        banner.background = request.background or None  # whitespace → cleared
     if request.link_url is not None:
         banner.link_url = request.link_url or None
     if request.open_in_new_tab is not None:

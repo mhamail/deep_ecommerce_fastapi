@@ -75,9 +75,7 @@ def create_section(
     session.commit()
     session.refresh(section)
 
-    return api_response(
-        200, "Section created", HomeSectionRead.model_validate(section)
-    )
+    return api_response(200, "Section created", HomeSectionRead.model_validate(section))
 
 
 @router.put("/update/{id}")
@@ -108,9 +106,7 @@ def update_section(
     session.commit()
     session.refresh(section)
 
-    return api_response(
-        200, "Section updated", HomeSectionRead.model_validate(section)
-    )
+    return api_response(200, "Section updated", HomeSectionRead.model_validate(section))
 
 
 @router.delete("/delete/{id}")
@@ -176,12 +172,17 @@ def list_sections(
 @router.get("/public")
 def public_layout(session: GetSession):
     """Storefront view — active sections, in order, with only their active
-    banners. A banner section left with no visible banners is dropped, so
+    banners (image and/or text). A banner section left with no visible banners is dropped, so
     the page never renders an empty frame."""
     result = []
     for section in _load_sections(session, only_active=True):
         read = HomeSectionRead.model_validate(section)
-        read.banners = [b for b in read.banners if b.is_active and b.image]
+        # Text-only banners (info cards) are valid — require an image OR copy.
+        read.banners = [
+            b
+            for b in read.banners
+            if b.is_active and (b.image or b.title or (b.content or "").strip())
+        ]
         if HomeSectionType(section.type) in BANNER_SECTION_TYPES and not read.banners:
             continue
         result.append(read)
