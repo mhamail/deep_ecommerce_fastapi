@@ -26,3 +26,6 @@ from src.api.models.cart_model.cartItemModel import CartItem
 
 # address
 from src.api.models.addressModel import UserAddress
+
+# home (storefront homepage layout)
+from src.api.models.home_model.homeModel import HomeSection, Banner

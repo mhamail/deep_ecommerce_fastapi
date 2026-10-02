@@ -50,6 +50,8 @@ class SitePermissionEnum(str, Enum):
     ROLE_CREATE = "role:create"
     ROLE_DELETE = "role:delete"
 
+    HOMEPAGE_MANAGE = "homepage:manage"
+
 
 class ShopPermissionEnum(str, Enum):
     PRODUCT_CREATE = "product:create"
