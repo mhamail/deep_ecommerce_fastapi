@@ -70,18 +70,20 @@ def _update_variant_from_payload(product_variant: ProductVariant, payload: dict)
             setattr(product_variant, field, value)
 
 
-async def _resolve_thumbnail_url(thumbnail, session, shop_id):
+async def _resolve_thumbnail_url(thumbnail, session, shop_id, title=None):
     """If `thumbnail` is a raw http(s) URL (e.g. from the n8n product-import
     automation), download it into a real Media record now and return that —
     otherwise None, so the caller leaves it for the normal uploadMediaFiles/
     uploadSingleMedia pipeline (an UploadFile, or an existing-media filename
     string)."""
     if is_image_url(thumbnail):
-        return await download_and_save_image(thumbnail, session, shop_id=shop_id)
+        return await download_and_save_image(
+            thumbnail, session, shop_id=shop_id, title=title
+        )
     return None
 
 
-async def _split_image_urls(images: list, session, shop_id):
+async def _split_image_urls(images: list, session, shop_id, title=None):
     """Splits a raw `images` list (a mix of UploadFile and str, per
     ProductForm) into the items to hand to the normal upload pipeline
     (UploadFiles and existing-media filename strings, untouched) and the
@@ -90,7 +92,9 @@ async def _split_image_urls(images: list, session, shop_id):
     downloaded = []
     for item in images:
         if is_image_url(item):
-            saved = await download_and_save_image(item, session, shop_id=shop_id)
+            saved = await download_and_save_image(
+                item, session, shop_id=shop_id, title=title
+            )
             if saved:
                 downloaded.append(saved)
     return remaining, downloaded
@@ -159,7 +163,10 @@ async def upsert_product_variants(
         # shape a real upload would have produced.
         if not image_file and is_image_url(variant.get("image")):
             variant["image"] = await download_and_save_image(
-                variant["image"], session, shop_id=product.shop_id
+                variant["image"],
+                session,
+                shop_id=product.shop_id,
+                title=product.name,
             )
 
         if variant_id:
@@ -252,13 +259,13 @@ async def create_product(
     # handle UploadFile objects and existing-media filename strings, so a
     # source-site URL is downloaded here instead and merged in afterward.
     thumbnail_from_url = await _resolve_thumbnail_url(
-        request.thumbnail, session, shop_id=shop_id
+        request.thumbnail, session, shop_id=shop_id, title=request.name
     )
     if thumbnail_from_url:
         request.thumbnail = None  # already resolved; keep it out of uploadMediaFiles
 
     request.images, images_from_url = await _split_image_urls(
-        request.images, session, shop_id=shop_id
+        request.images, session, shop_id=shop_id, title=request.name
     )
 
     data = serialize_obj(request)
@@ -327,11 +334,14 @@ async def update_product(
         if product.thumbnail:
             await deleteMediaFiles(session, product.thumbnail)
         request.thumbnail = await download_and_save_image(
-            request.thumbnail, session, shop_id=shop_id
+            request.thumbnail,
+            session,
+            shop_id=shop_id,
+            title=request.name or product.name,
         )
 
     request.images, images_from_url = await _split_image_urls(
-        request.images or [], session, shop_id=shop_id
+        request.images or [], session, shop_id=shop_id, title=request.name or product.name
     )
 
     # Run even when there are no new files, as long as something is being

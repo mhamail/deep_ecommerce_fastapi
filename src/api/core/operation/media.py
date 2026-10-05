@@ -6,6 +6,7 @@ from uuid import uuid4
 
 import httpx
 from src.api.core.response import api_response
+from src.api.core.utility import slugify
 from PIL import Image, UnidentifiedImageError, ImageOps
 from starlette.datastructures import UploadFile
 
@@ -251,11 +252,19 @@ def is_image_url(value: Any) -> bool:
 
 
 async def download_and_save_image(
-    url: str, session, shop_id: Optional[int] = None, retries: int = 3
+    url: str,
+    session,
+    shop_id: Optional[int] = None,
+    retries: int = 3,
+    title: Optional[str] = None,
 ) -> Optional[dict]:
     """Fetch an external image URL and store it as a real local Media
     record, via the same resize/convert pipeline every other upload uses.
     Returns None on any download/processing failure.
+
+    `title` (e.g. the product name) becomes the SEO-friendly filename —
+    "Nike Air Max 90" -> "nike-air-max-90-<timestamp>.webp" — instead of a
+    random hex name. Falls back to a random name if empty/unsluggable.
 
     Retries on 429 with backoff — hosts like Imgur rate-limit anonymous
     requests aggressively when downloading many images back-to-back (e.g.
@@ -277,7 +286,8 @@ async def download_and_save_image(
             return None  # exhausted retries, still 429
 
     ext = os.path.splitext(url.split("?")[0])[1] or ".jpg"
-    shim = _DownloadedFile(f"{uuid4().hex}{ext}", response.content)
+    base_name = slugify(title or "")[:80].strip("-") or uuid4().hex
+    shim = _DownloadedFile(f"{base_name}{ext}", response.content)
 
     saved_files = await uploadImage([shim], thumbnail=False)
     if not isinstance(saved_files, list) or not saved_files:
