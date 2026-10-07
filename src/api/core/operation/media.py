@@ -5,6 +5,7 @@ import time
 from uuid import uuid4
 
 import httpx
+from urllib.parse import urlsplit
 from src.api.core.response import api_response
 from src.api.core.utility import slugify
 from PIL import Image, UnidentifiedImageError, ImageOps
@@ -269,7 +270,20 @@ async def download_and_save_image(
     Retries on 429 with backoff — hosts like Imgur rate-limit anonymous
     requests aggressively when downloading many images back-to-back (e.g.
     seeding demo data)."""
-    headers = {"User-Agent": "Mozilla/5.0 (compatible; DemoDataSeeder/1.0)"}
+    # Many source sites (WordPress + CDN hotlink protection, e.g.
+    # smtpakistan.com) answer 403 to a bot-like UA or a request with no
+    # same-site Referer — send browser-like headers with the URL's own
+    # origin as Referer.
+    parts = urlsplit(url.strip())
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+        ),
+        "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+        "Referer": f"{parts.scheme}://{parts.netloc}/",
+    }
+    url = url.strip()
     response = None
     async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
         for attempt in range(retries):
