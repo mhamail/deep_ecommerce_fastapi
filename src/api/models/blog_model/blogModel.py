@@ -30,6 +30,11 @@ class Blog(TimeStampedModel, table=True):
     content: str = Field(default="")
     # Stored media dict ({id, filename, original, media_type}).
     cover_image: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON))
+    # Optional video shared with the post (YouTube / Vimeo / direct file):
+    # {provider, video_id, url, title, thumbnail: media dict | None}. When
+    # set, the storefront shows its thumbnail (click to play) instead of the
+    # cover. A direct file has no thumbnail of its own — the cover is used.
+    video: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON))
 
     author_id: Optional[int] = Field(default=None, foreign_key="users.id", index=True)
     author: Optional[User] = Relationship()
@@ -42,12 +47,22 @@ class Blog(TimeStampedModel, table=True):
     def excerpt(self) -> Optional[str]:
         """Computed (not stored): first paragraph, used on cards and as the
         meta description."""
-        return derive_summary(self.content)
+        return derive_summary(self.content) or (
+            (self.video or {}).get("title") or None
+        )
 
 
 # ==========================
 # Read schemas
 # ==========================
+class BlogVideoRead(BaseModel):
+    provider: str  # "youtube" | "vimeo" | "file"
+    video_id: Optional[str] = None
+    url: str
+    title: Optional[str] = None
+    thumbnail: Optional[MediaRead] = None
+
+
 class BlogListRead(SQLModel):
     """Card / table row — no body."""
 
@@ -56,6 +71,7 @@ class BlogListRead(SQLModel):
     slug: str
     excerpt: Optional[str] = None
     cover_image: Optional[MediaRead] = None
+    video: Optional[BlogVideoRead] = None
     author_name: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
@@ -72,6 +88,9 @@ class BlogCreate(BaseModel):
     content: str = ""
     # Filename of an already-uploaded media row (POST /media/create first).
     cover_image: Optional[str] = None
+    # YouTube / Vimeo / direct .mp4 link — resolved (and its thumbnail saved)
+    # when the post is stored.
+    video_url: Optional[str] = None
 
 
 class BlogUpdate(BaseModel):
@@ -80,6 +99,7 @@ class BlogUpdate(BaseModel):
 
     content: Optional[str] = None
     cover_image: Optional[str] = None
+    video_url: Optional[str] = None
 
 
 class VideoMetaRequest(BaseModel):

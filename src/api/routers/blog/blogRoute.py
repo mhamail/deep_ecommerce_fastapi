@@ -63,18 +63,31 @@ def _check_owner(blog: Blog, user: dict):
         api_response(403, "You can only change your own posts")
 
 
-def _title_for(content: str) -> str:
-    """Title from the content; a post that is only a picture / video gets a
-    dated title instead of a bare "New post"."""
+def _title_for(content: str, video: dict | None = None) -> str:
+    """Title from the content. A post with no text takes its video's title,
+    else a dated one — never a bare "New post"."""
     title = derive_title(content)
     if title == "New post":
+        if video and video.get("title"):
+            return video["title"][:191]
         return f"Update {datetime.now(timezone.utc):%d %b %Y}"
     return title
 
 
+def _with_poster(read, blog: Blog):
+    """A direct video file has no thumbnail of its own — use the cover."""
+    if read.video and read.video.thumbnail is None and read.cover_image:
+        read.video.thumbnail = read.cover_image
+    return read
+
+
+def _card(blog: Blog) -> BlogListRead:
+    return _with_poster(BlogListRead.model_validate(blog), blog)
+
+
 def _read(blog: Blog) -> BlogRead:
     """ORM row → full read schema, media URLs expanded to absolute."""
-    read = BlogRead.model_validate(blog)
+    read = _with_poster(BlogRead.model_validate(blog), blog)
     read.content = expand_media(read.content)
     return read
 
@@ -138,6 +151,9 @@ def _blog_media(blog: Blog) -> set[str]:
     files = media_filenames(blog.content)
     if blog.cover_image and blog.cover_image.get("filename"):
         files.add(blog.cover_image["filename"])
+    thumb = (blog.video or {}).get("thumbnail")
+    if thumb and thumb.get("filename"):
+        files.add(thumb["filename"])
     return files
 
 
@@ -174,16 +190,25 @@ def read_blog(
 
 
 @router.post("/create")
-def create_blog(
+async def create_blog(
     request: BlogCreate,
     session: GetSession,
     user=Depends(_blog_author),
 ):
     content = _clean_content(request.content)
-    if not has_visible_content(content) and not request.cover_image:
-        api_response(400, "Write something or add a cover image")
 
-    title = _title_for(content)
+    video = None
+    if (request.video_url or "").strip():
+        video = await _resolve_video(request.video_url, session)
+        if video["provider"] == "file" and not request.cover_image:
+            api_response(
+                400,
+                "Add a cover image — it is the thumbnail for a direct video file",
+            )
+    if not has_visible_content(content) and not request.cover_image and not video:
+        api_response(400, "Write something, or add a cover image or a video link")
+
+    title = _title_for(content, video)
     blog = Blog(
         title=title,
         slug=_unique_slug(session, title),
@@ -191,6 +216,7 @@ def create_blog(
         cover_image=_resolve_cover(session, request.cover_image)
         if request.cover_image
         else None,
+        video=video,
         author_id=user.get("id"),
     )
     session.add(blog)
@@ -219,8 +245,16 @@ async def update_blog(
 
     if "content" in data:
         blog.content = _clean_content(data["content"])
-        # Title follows the text; the slug stays put so shared links keep working.
-        blog.title = _title_for(blog.content)
+    if "video_url" in data:
+        url = (data["video_url"] or "").strip()
+        if not url:
+            blog.video = None
+        elif not blog.video or blog.video.get("url") != url:
+            blog.video = await _resolve_video(url, session)
+    if "content" in data or "video_url" in data:
+        # Title follows the text / video; the slug stays put so shared links
+        # keep working.
+        blog.title = _title_for(blog.content, blog.video)
     if "cover_image" in data:
         filename = data["cover_image"]
         if not filename:
@@ -228,8 +262,12 @@ async def update_blog(
         elif not blog.cover_image or blog.cover_image.get("filename") != filename:
             blog.cover_image = _resolve_cover(session, filename)
 
-    if not has_visible_content(blog.content) and not blog.cover_image:
-        api_response(400, "Write something or add a cover image")
+    if (blog.video or {}).get("provider") == "file" and not blog.cover_image:
+        api_response(
+            400, "Add a cover image — it is the thumbnail for a direct video file"
+        )
+    if not has_visible_content(blog.content) and not blog.cover_image and not blog.video:
+        api_response(400, "Write something, or add a cover image or a video link")
 
     blog.updated_at = datetime.now(timezone.utc)
     session.add(blog)
@@ -306,21 +344,17 @@ async def _oembed(client: httpx.AsyncClient, endpoint: str, params: dict) -> dic
         )
 
 
-@router.post("/video-meta")
-async def video_meta(
-    request: VideoMetaRequest,
-    session: GetSession,
-    user=Depends(_blog_author),
-):
-    """Resolve a pasted video link for the editor.
+async def _resolve_video(url: str, session) -> dict:
+    """Resolve a pasted video link.
 
     YouTube / Vimeo: confirms the video exists (their public oEmbed), then
     downloads its thumbnail into our own media storage (no hotlinking, and no
-    browser CORS problem). Direct .mp4/.webm links carry no thumbnail, so
-    `thumbnail_url` is null and the editor must make the author upload one.
-    Only the fixed hosts below are ever fetched — never an arbitrary URL.
+    browser CORS problem). Direct .mp4/.webm links carry no thumbnail
+    (`thumbnail` is None — the caller must supply one). Only the fixed hosts
+    below are ever fetched — never an arbitrary URL. The new Media row is
+    only staged; the caller commits.
     """
-    url = (request.url or "").strip()
+    url = (url or "").strip()
     parts = urlsplit(url)
     if parts.scheme not in ("http", "https") or not parts.hostname:
         api_response(400, "Enter a full video link starting with https://")
@@ -376,23 +410,39 @@ async def video_meta(
             break
     if thumb_candidates and not thumb:
         api_response(400, "Couldn't fetch the video's thumbnail — upload one instead")
-    session.commit()  # download_and_save_image only stages the Media row
 
+    return {
+        "provider": provider,
+        "video_id": video_id,
+        "url": canonical,
+        "title": title,
+        "thumbnail": thumb,  # media dict ({id, filename, original, ...}) or None
+    }
+
+
+@router.post("/video-meta")
+async def video_meta(
+    request: VideoMetaRequest,
+    session: GetSession,
+    user=Depends(_blog_author),
+):
+    """Resolve a pasted video link for the editor's video dialog."""
+    video = await _resolve_video(request.url, session)
+    session.commit()  # download_and_save_image only stages the Media row
+    thumb = video["thumbnail"]
     return api_response(
         200,
         "Video resolved",
         {
-            "provider": provider,
-            "video_id": video_id,
-            "url": canonical,
-            "title": title,
+            "provider": video["provider"],
+            "video_id": video["video_id"],
+            "url": video["url"],
+            "title": video["title"],
             "thumbnail_url": f"{(DOMAIN or '').rstrip('/')}{thumb['original']}"
             if thumb
             else None,
         },
     )
-
-
 
 
 # ==========================================================================
@@ -416,7 +466,7 @@ def public_list(
     return api_response(
         200,
         "Posts found",
-        [BlogListRead.model_validate(b) for b in rows],
+        [_card(b) for b in rows],
         total,
     )
 
