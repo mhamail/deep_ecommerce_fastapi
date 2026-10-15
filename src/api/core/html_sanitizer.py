@@ -38,10 +38,7 @@ DROP_WITH_CONTENT = {
     "applet", "frame", "frameset",
 }
 
-VIDEO_PROVIDERS = {"youtube", "vimeo", "file"}
-
 _CONTROL = re.compile(r"[\x00-\x20\x7f]")
-_VIDEO_ID = re.compile(r"^[\w-]{1,64}$")
 _DIGITS = re.compile(r"^\d{1,5}$")
 _CODE_CLASS = re.compile(r"^language-[\w-]{1,30}$")
 
@@ -76,17 +73,6 @@ def _clean_attr(tag: str, name: str, value: str) -> Optional[str]:
             return value
         if name in ("width", "height"):
             return value if _DIGITS.match(value) else None
-    elif tag == "figure":
-        if name == "data-video":
-            return "true" if value == "true" else None
-        if name == "data-provider":
-            return value if value in VIDEO_PROVIDERS else None
-        if name == "data-video-id":
-            return value if _VIDEO_ID.match(value) else None
-        if name in ("data-url", "data-poster"):
-            return _safe_url(value)
-        if name == "data-title":
-            return value
     elif tag == "code" and name == "class":
         return value if _CODE_CLASS.match(value) else None
     elif tag == "ol" and name == "start":
@@ -182,8 +168,8 @@ def sanitize_html(html: Optional[str]) -> str:
 
 # ------------------------------------------------------------- media URLs
 _DOMAIN = (DOMAIN or "").rstrip("/")
-_MEDIA_ATTR_ABS = re.compile(r'(\b(?:src|data-poster|data-url)=")' + re.escape(_DOMAIN) + r"/media/") if _DOMAIN else None
-_MEDIA_ATTR_REL = re.compile(r'(\b(?:src|data-poster)=")/media/')
+_MEDIA_ATTR_ABS = re.compile(r'(\b(?:src)=")' + re.escape(_DOMAIN) + r"/media/") if _DOMAIN else None
+_MEDIA_ATTR_REL = re.compile(r'(\b(?:src)=")/media/')
 _MEDIA_FILE = re.compile(r"/media/([A-Za-z0-9._\-]+)")
 
 
@@ -216,10 +202,10 @@ def plain_text(html: Optional[str]) -> str:
 
 
 def has_visible_content(html: Optional[str]) -> bool:
-    """True if the post has any text, an image or a video."""
+    """True if the post has any text or an image."""
     if not html:
         return False
-    return bool(plain_text(html)) or "<img" in html or "data-video" in html
+    return bool(plain_text(html)) or "<img" in html
 
 
 # ------------------------------------------------------------ SEO helpers

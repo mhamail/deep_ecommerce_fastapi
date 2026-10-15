@@ -25,15 +25,14 @@ class Blog(TimeStampedModel, table=True):
     title: str = Field(max_length=191)
     # URL identity (/blog/<slug>) — unique; fixed when the post is created.
     slug: str = Field(max_length=200, unique=True, index=True)
-    # Sanitised HTML from the admin's RichTextEditor (images / video poster
-    # figures included). Media URLs are stored as `/media/<file>`.
+    # Sanitised HTML from the admin's RichTextEditor (images included). Media
+    # URLs are stored as `/media/<file>`.
     content: str = Field(default="")
     # Stored media dict ({id, filename, original, media_type}).
     cover_image: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON))
-    # Optional video shared with the post (YouTube / Vimeo / direct file):
-    # {provider, video_id, url, title, thumbnail: media dict | None}. When
-    # set, the storefront shows its thumbnail (click to play) instead of the
-    # cover. A direct file has no thumbnail of its own — the cover is used.
+    # Optional YouTube / Vimeo link, resolved when the post is stored:
+    # {provider, video_id, url, title, thumbnail: media dict}. The storefront
+    # shows its thumbnail (click to play) instead of the cover.
     video: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON))
 
     author_id: Optional[int] = Field(default=None, foreign_key="users.id", index=True)
@@ -56,8 +55,8 @@ class Blog(TimeStampedModel, table=True):
 # Read schemas
 # ==========================
 class BlogVideoRead(BaseModel):
-    provider: str  # "youtube" | "vimeo" | "file"
-    video_id: Optional[str] = None
+    provider: str  # "youtube" | "vimeo"
+    video_id: str
     url: str
     title: Optional[str] = None
     thumbnail: Optional[MediaRead] = None
@@ -88,8 +87,7 @@ class BlogCreate(BaseModel):
     content: str = ""
     # Filename of an already-uploaded media row (POST /media/create first).
     cover_image: Optional[str] = None
-    # YouTube / Vimeo / direct .mp4 link — resolved (and its thumbnail saved)
-    # when the post is stored.
+    # YouTube / Vimeo link — resolved (title + thumbnail saved) on store.
     video_url: Optional[str] = None
 
 
@@ -100,7 +98,3 @@ class BlogUpdate(BaseModel):
     content: Optional[str] = None
     cover_image: Optional[str] = None
     video_url: Optional[str] = None
-
-
-class VideoMetaRequest(BaseModel):
-    url: str
