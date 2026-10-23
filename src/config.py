@@ -38,6 +38,9 @@ SMTP_USER = os.getenv("SMTP_USER", "youremail@gmail.com")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "yourpassword")
 SMTP_FROM = os.getenv("SMTP_FROM", SMTP_USER)
 RESET_URL = os.getenv("RESET_URL", f"{DOMAIN}/reset-password")
+# Admin dashboard origin — only used to link back from notification emails
+# (e.g. new product question); the link is omitted when unset.
+ADMIN_URL = os.getenv("ADMIN_URL")
 
 
 

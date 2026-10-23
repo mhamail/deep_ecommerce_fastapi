@@ -55,6 +55,14 @@ class Product(TimeStampedModel, table=True):
     is_active: bool = Field(default=True)
     is_featured: bool = Field(default=False)
 
+    # Review aggregate — stored (not computed per request) so product cards
+    # and listings can show stars for free. Maintained only by
+    # routers/review/fn.py::recompute_rating on every review write.
+    rating_average: float = Field(default=0)
+    rating_count: int = Field(default=0)
+    # {"1": n, ..., "5": n}
+    rating_breakdown: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+
     # Relationships
     shop: "Shop" = Relationship(back_populates="products")
     creator: "User" = Relationship(back_populates="created_products")
@@ -157,6 +165,10 @@ class ProductBase(SQLModel):
     max_price: Optional[float] = 0
     total_stock: int = 0
     is_sale: bool = False
+
+    # Reviews (stored aggregate)
+    rating_average: float = 0
+    rating_count: int = 0
 
     # Relations
     shop: ShopRead

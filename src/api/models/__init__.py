@@ -32,3 +32,9 @@ from src.api.models.home_model.homeModel import HomeSection, Banner
 
 # blog
 from src.api.models.blog_model.blogModel import Blog
+
+# reviews
+from src.api.models.review_model.reviewModel import ProductReview
+
+# questions
+from src.api.models.question_model.questionModel import ProductQuestion

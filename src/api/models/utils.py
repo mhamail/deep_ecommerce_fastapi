@@ -56,3 +56,15 @@ def to_float(v):
         return float(v)
     except:
         return None
+
+
+def mask_author(user) -> str:
+    """Public display name for a customer's review/question. Never leaks an
+    email: falls back to the first two letters of the address, masked
+    ("jo***")."""
+    if not user:
+        return "Customer"
+    if user.full_name and user.full_name.strip():
+        return user.full_name.strip()
+    local = (user.email or "").split("@")[0]
+    return f"{local[:2]}***" if local else "Customer"

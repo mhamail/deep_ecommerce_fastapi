@@ -6,6 +6,7 @@ from src.api.core.response import api_response
 from src.api.models.category_model import Category
 from src.api.models.order_model.orderItemModel import OrderItem, OrderItemStatus
 from src.api.models.product_model.productModel import Product
+from src.api.routers.question.fn import count_unanswered_questions
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
@@ -38,5 +39,8 @@ def get_counts(session: GetSession, user: requireDefaultShop):
             "products": products,
             "orders": pending_orders,
             "categories": categories,
+            # Unanswered product questions — drives the sidebar badge and
+            # the header bell's initial count.
+            "questions": count_unanswered_questions(session, shop_id),
         },
     )

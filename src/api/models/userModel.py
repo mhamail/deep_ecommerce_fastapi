@@ -227,6 +227,9 @@ class UserRoleRead(SQLModel):
     id: int
     name: str
     permissions: list[str]
+    # Which shop the role is scoped to (None = global) — the storefront's
+    # shop-scoped "can" checks need it, same as /user/me's roles.
+    shop_id: Optional[int] = None
 
 
 class UserShopRead(SQLModel):
